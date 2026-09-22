@@ -1,0 +1,90 @@
+---
+- name: Validate the requested access-management operation
+  ansible.builtin.assert:
+    that:
+      - access_model_required_kind in ['none', 'team', 'tunnel']
+      - access_model_required_kind != 'team' or team_access_users | length > 0
+      - access_model_required_kind != 'tunnel' or tunnel_access_users | length > 0
+    fail_msg: >-
+      Define the complete desired user list in inventories/production/hosts.yml
+      before running this account-management playbook.
+
+- name: Validate administrator definitions
+  ansible.builtin.assert:
+    that:
+      - item.name is defined
+      - item.name is match('^overtone_[a-z0-9][a-z0-9_-]*$')
+      - item.hosts is defined
+      - item.hosts | length > 0
+      - item.hosts | difference(groups['all']) | length == 0
+      - (item.state | default('present')) in ['present', 'absent']
+      - >-
+        (item.state | default('present')) == 'absent' or
+        (item.public_keys is defined and item.public_keys | length > 0)
+    fail_msg: "Invalid team_access_users entry for {{ item.name | default('unknown') }}."
+  loop: "{{ team_access_users }}"
+  loop_control:
+    label: "{{ item.name | default('unknown') }}"
+
+- name: Validate tunnel identity definitions
+  ansible.builtin.assert:
+    that:
+      - item.name is defined
+      - item.name is match('^overtone_[a-z0-9][a-z0-9_-]*$')
+      - item.target_hosts is defined
+      - item.target_hosts | length > 0
+      - item.target_hosts | difference(groups['swarm_workers']) | length == 0
+      - item.permit_listen is defined
+      - item.permit_listen | length > 0
+      - >-
+        item.permit_listen |
+        reject('match', '^127\\.0\\.0\\.1:[0-9]+$') |
+        list | length == 0
+      - (item.state | default('present')) in ['present', 'absent']
+      - >-
+        (item.state | default('present')) == 'absent' or
+        (item.public_keys is defined and item.public_keys | length > 0)
+    fail_msg: "Invalid tunnel_access_users entry for {{ item.name | default('unknown') }}."
+  loop: "{{ tunnel_access_users }}"
+  loop_control:
+    label: "{{ item.name | default('unknown') }}"
+
+- name: Reject duplicate or shared account names
+  ansible.builtin.assert:
+    that:
+      - >-
+        team_access_users | map(attribute='name') | list | length ==
+        team_access_users | map(attribute='name') | unique | list | length
+      - >-
+        tunnel_access_users | map(attribute='name') | list | length ==
+        tunnel_access_users | map(attribute='name') | unique | list | length
+      - >-
+        team_access_users | map(attribute='name') | list |
+        intersect(tunnel_access_users | map(attribute='name') | list) | length == 0
+    fail_msg: Account names must be unique and cannot be shared between account types.
+
+- name: Start the per-host managed SSH allowlist
+  ansible.builtin.set_fact:
+    ssh_managed_allowed_users: []
+
+- name: Add present administrators to this host allowlist
+  ansible.builtin.set_fact:
+    ssh_managed_allowed_users: "{{ ssh_managed_allowed_users + [item.name] }}"
+  loop: "{{ team_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - (item.state | default('present')) == 'present'
+    - inventory_hostname in item.hosts
+
+- name: Add present tunnel identities to their two SSH hops
+  ansible.builtin.set_fact:
+    ssh_managed_allowed_users: "{{ ssh_managed_allowed_users + [item.name] }}"
+  loop: "{{ tunnel_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - (item.state | default('present')) == 'present'
+    - >-
+      inventory_hostname in groups['bastion_hosts'] or
+      inventory_hostname in item.target_hosts

@@ -12,4 +12,4 @@ PermitTunnel no
 GatewayPorts no
 PermitListen {{ ssh_permit_listen | join(' ') }}
 
-AllowUsers {{ ssh_allowed_users | join(' ') }}
+AllowUsers {{ ssh_policy_effective_allowed_users | join(' ') }}

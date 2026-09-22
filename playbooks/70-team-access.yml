@@ -1,0 +1,24 @@
+---
+- name: Manage full administrative access through bastion one server at a time
+  hosts: all
+  become: true
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+
+  pre_tasks:
+    - name: Require explicit confirmation before changing administrative access
+      ansible.builtin.assert:
+        that:
+          - access_policy_confirmed | default(false) | bool
+        fail_msg: >-
+          This playbook changes users, sudo and SSH access. Keep an existing
+          SSH session and provider console open, then rerun with
+          -e access_policy_confirmed=true and --limit for the first server.
+
+  roles:
+    - role: access_model
+      vars:
+        access_model_required_kind: team
+    - role: ssh_policy
+    - role: team_access

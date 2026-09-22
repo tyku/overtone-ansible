@@ -11,4 +11,4 @@ X11Forwarding no
 PermitTunnel no
 GatewayPorts no
 
-AllowUsers {{ ssh_allowed_users | join(' ') }}
+AllowUsers {{ ssh_policy_effective_allowed_users | join(' ') }}

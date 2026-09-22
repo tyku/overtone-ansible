@@ -1,11 +1,18 @@
 ---
+- name: Build the complete SSH AllowUsers list for this host
+  ansible.builtin.set_fact:
+    ssh_policy_effective_allowed_users: >-
+      {{ (ssh_allowed_users + ssh_managed_allowed_users) | unique | list }}
+
 - name: Validate the selected SSH policy profile
   ansible.builtin.assert:
     that:
       - ssh_policy_profile in ['bastion', 'locked', 'worker']
       - ssh_policy_dropin_path | length > 0
-      - ssh_allowed_users | length > 0
-      - ssh_allowed_users | select('search', 'CHANGE_ME') | list | length == 0
+      - ssh_policy_effective_allowed_users | length > 0
+      - >-
+        ssh_policy_effective_allowed_users |
+        select('search', 'CHANGE_ME') | list | length == 0
     fail_msg: Fill the SSH policy variables before managing sshd.
 
 - name: Validate bastion PermitOpen destinations

@@ -1,0 +1,46 @@
+---
+- name: Check whether administrator already exists
+  ansible.builtin.command: "getent passwd {{ team_account.name }}"
+  register: team_account_existing
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Create the administrator account
+  ansible.builtin.user:
+    name: "{{ team_account.name }}"
+    shell: /bin/bash
+    create_home: true
+    groups:
+      - sudo
+    append: true
+    password_lock: true
+    state: present
+
+- name: Install the administrator public keys
+  ansible.posix.authorized_key:
+    user: "{{ team_account.name }}"
+    key: "{{ team_account.public_keys | join('\n') }}"
+    key_options: no-agent-forwarding,no-X11-forwarding
+    state: present
+    exclusive: true
+    manage_dir: true
+  when: not ansible_check_mode or team_account_existing.rc == 0
+
+- name: Explain a new-account check-mode limitation
+  ansible.builtin.debug:
+    msg: >-
+      Public keys cannot be check-mode validated until this new Unix account
+      exists; they will be installed during the real run.
+  when:
+    - ansible_check_mode
+    - team_account_existing.rc != 0
+
+- name: Allow passwordless sudo for the administrator
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ team_account.name }}"
+    content: "{{ team_account.name }} ALL=(ALL:ALL) NOPASSWD: ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s

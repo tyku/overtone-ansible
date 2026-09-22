@@ -5,6 +5,9 @@
   gather_facts: false
   serial: 1
 
+  roles:
+    - role: access_model
+
   tasks:
     - name: Validate sshd configuration syntax
       ansible.builtin.command: /usr/sbin/sshd -t
@@ -43,7 +46,7 @@
         that:
           - "item in access_audit_sshd.stdout"
         fail_msg: "Expected SSH user {{ item }} is absent from AllowUsers."
-      loop: "{{ ssh_allowed_users }}"
+      loop: "{{ (ssh_allowed_users + ssh_managed_allowed_users) | unique | list }}"
 
     - name: Verify bastion local forwarding policy
       ansible.builtin.assert:

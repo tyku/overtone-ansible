@@ -34,7 +34,76 @@ Ansible-описание пяти существующих VPS:
 | `40-docker.yml` | Устанавливает зафиксированную версию Docker на Swarm-узлы. |
 | `50-swarm.yml` | Создаёт manager и присоединяет workers через приватную сеть. |
 | `60-haproxy.yml` | Устанавливает HAProxy и проксирует TCP 80/443 на workers. |
+| `70-team-access.yml` | Управляет полноправными администраторами: ключи, sudo и AllowUsers. |
+| `71-tunnel-accounts.yml` | Создаёт ограниченные tunnel identities на bastion и выбранном worker. |
 | `90-audit.yml` | Read-only аудит эффективных SSH/UFW-настроек. |
+
+## Управление дополнительным доступом
+
+Полный желаемый список пользователей хранится только в игнорируемом
+`inventories/production/hosts.yml`, в `all.vars`. Пример структуры находится в
+`hosts.example.yml`. Не удаляйте из списка действующего пользователя: список
+используется как desired state для `AllowUsers`.
+
+`70-team-access.yml` создаёт указанного пользователя на выбранных `hosts`,
+устанавливает только его перечисленные публичные ключи, блокирует пароль и даёт
+passwordless sudo. Поле `hosts` — точный желаемый набор: на остальных пяти
+управляемых VPS аккаунт с этим именем будет удалён. Приватный ключ Ansible не
+получает и на bastion не копирует.
+
+Сначала check mode на bastion:
+
+```bash
+ansible-playbook -i inventories/production/hosts.yml \
+  playbooks/70-team-access.yml \
+  --limit bastion \
+  -e access_policy_confirmed=true \
+  --check --diff
+```
+
+После проверки реального входа нового администратора playbook можно применить к
+остальным хостам без `--limit`. Для полного удаления устанавливается
+`state: absent`; запись следует удалить из файла только после успешного удаления
+аккаунта со всех VPS.
+
+`71-tunnel-accounts.yml` создаёт одну техническую identity на всех нужных хопах:
+
+- на bastion ключ может открыть только TCP-соединения к SSH выбранных workers;
+- на каждом выбранном worker ключ может использовать только remote forwarding и перечисленные
+  loopback `permit_listen` endpoints;
+- password, интерактивная shell, PTY, agent/X11 forwarding и sudo отсутствуют.
+
+Одна запись может обслуживать оба worker: `target_hosts` содержит `worker-1` и
+`worker-2`, а пользователь, например `overtone_tunnel`, создаётся на bastion и
+обоих workers. Один ключ проще в эксплуатации, но его отзыв одновременно
+отключает оба направления.
+
+Первый check mode:
+
+```bash
+ansible-playbook -i inventories/production/hosts.yml \
+  playbooks/71-tunnel-accounts.yml \
+  --limit bastion \
+  -e access_policy_confirmed=true \
+  --check --diff
+```
+
+Затем playbook применяется ко всей своей группе: bastion и workers. На
+невыбранных workers одноимённая managed identity удаляется, поэтому изменение
+`target_hosts` не оставляет старый аккаунт. Playbook не запускает и не поддерживает
+сам туннель. Пример ручного подключения:
+
+```bash
+ssh -i ~/.ssh/overtone-infra/keys/CHANGE_ME_TUNNEL_KEY \
+  -o IdentitiesOnly=yes \
+  -J overtone_tunnel@BASTION_PUBLIC_IP \
+  -N -R 127.0.0.1:19000:127.0.0.1:9000 \
+  overtone_tunnel@WORKER_PRIVATE_IP
+```
+
+Для нового Unix-пользователя `--check` не может проверить запись его
+`authorized_keys`, потому что домашней директории ещё нет. Реальный запуск
+создаёт пользователя первым и затем устанавливает ключ.
 
 ## Зафиксированная модель доступа
 

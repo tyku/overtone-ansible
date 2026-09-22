@@ -2,6 +2,38 @@
 # Copy this file to hosts.yml and replace every CHANGE_ME value locally.
 # Bastion uses the SSH alias that is already configured on the Mac.
 all:
+  vars:
+    # Keep the complete desired access model here. Both account playbooks and
+    # 30-ssh-policy.yml use these lists to preserve AllowUsers correctly.
+    team_access_users: []
+    tunnel_access_users: []
+
+    # Example administrator:
+    # team_access_users:
+    #   - name: overtone_alice
+    #     public_keys:
+    #       - ssh-ed25519 CHANGE_ME_ALICE_PUBLIC_KEY alice@example
+    #     hosts:
+    #       - bastion
+    #       - haproxy
+    #       - manager-1
+    #       - worker-1
+    #       - worker-2
+    #     state: present
+
+    # Example tunnel identity. The same public key is installed on bastion
+    # and both selected workers, with different key restrictions on each hop.
+    # tunnel_access_users:
+    #   - name: overtone_tunnel
+    #     public_keys:
+    #       - ssh-ed25519 CHANGE_ME_TUNNEL_PUBLIC_KEY tunnel
+    #     target_hosts:
+    #       - worker-1
+    #       - worker-2
+    #     permit_listen:
+    #       - 127.0.0.1:19000
+    #     state: present
+
   children:
     bastion_hosts:
       hosts:

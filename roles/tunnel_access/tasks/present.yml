@@ -1,0 +1,45 @@
+---
+- name: Check whether tunnel identity already exists
+  ansible.builtin.command: "getent passwd {{ tunnel_account.name }}"
+  register: tunnel_account_existing
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Create the non-privileged tunnel identity
+  ansible.builtin.user:
+    name: "{{ tunnel_account.name }}"
+    shell: /usr/sbin/nologin
+    create_home: true
+    password_lock: true
+    system: true
+    state: present
+
+- name: Ensure the tunnel identity never has sudo policy
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ tunnel_account.name }}"
+    state: absent
+
+- name: Install the hop-specific restricted public keys
+  ansible.posix.authorized_key:
+    user: "{{ tunnel_account.name }}"
+    key: "{{ tunnel_account.public_keys | join('\n') }}"
+    key_options: >-
+      {%- if inventory_hostname in groups['bastion_hosts'] -%}
+      restrict,port-forwarding{% for target_host in tunnel_account.target_hosts %},permitopen="{{ hostvars[target_host].private_ip }}:22"{% endfor %}
+      {%- else -%}
+      restrict,port-forwarding{% for endpoint in tunnel_account.permit_listen %},permitlisten="{{ endpoint }}"{% endfor %}
+      {%- endif -%}
+    state: present
+    exclusive: true
+    manage_dir: true
+  when: not ansible_check_mode or tunnel_account_existing.rc == 0
+
+- name: Explain a new-account check-mode limitation
+  ansible.builtin.debug:
+    msg: >-
+      Public keys cannot be check-mode validated until this new Unix account
+      exists; they will be installed during the real run.
+  when:
+    - ansible_check_mode
+    - tunnel_account_existing.rc != 0

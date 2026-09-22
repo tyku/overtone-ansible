@@ -1,0 +1,49 @@
+---
+- name: Prevent removal of the active Ansible administrator
+  ansible.builtin.assert:
+    that:
+      - item.name != (ansible_user | default(''))
+      - item.name != (overtone_admin_user | default(''))
+    fail_msg: "Refusing to remove the active automation account {{ item.name }}."
+  loop: "{{ team_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - >-
+      (item.state | default('present')) == 'absent' or
+      inventory_hostname not in item.hosts
+
+- name: Manage present administrator accounts on this host
+  ansible.builtin.include_tasks: present.yml
+  loop: "{{ team_access_users }}"
+  loop_control:
+    loop_var: team_account
+    label: "{{ team_account.name }}"
+  when:
+    - inventory_hostname in team_account.hosts
+    - (team_account.state | default('present')) == 'present'
+
+- name: Remove obsolete administrator sudo policy
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ item.name }}"
+    state: absent
+  loop: "{{ team_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - >-
+      (item.state | default('present')) == 'absent' or
+      inventory_hostname not in item.hosts
+
+- name: Remove obsolete administrator accounts
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    state: absent
+    remove: true
+  loop: "{{ team_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - >-
+      (item.state | default('present')) == 'absent' or
+      inventory_hostname not in item.hosts

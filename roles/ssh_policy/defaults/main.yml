@@ -2,5 +2,6 @@
 ssh_policy_profile: locked
 ssh_policy_dropin_path: /etc/ssh/sshd_config.d/00-overtone-internal.conf
 ssh_allowed_users: []
+ssh_managed_allowed_users: []
 ssh_permit_listen: []
 ssh_service_name: ssh.service

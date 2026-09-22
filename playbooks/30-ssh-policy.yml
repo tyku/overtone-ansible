@@ -17,4 +17,5 @@
           -e access_policy_confirmed=true and --limit for one server.
 
   roles:
+    - role: access_model
     - role: ssh_policy

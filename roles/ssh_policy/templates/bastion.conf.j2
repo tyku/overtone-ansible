@@ -12,4 +12,4 @@ PermitTunnel no
 GatewayPorts no
 PermitOpen{% for host in groups['internal'] %} {{ hostvars[host].private_ip }}:22{% endfor %}
 
-AllowUsers {{ ssh_allowed_users | join(' ') }}
+AllowUsers {{ ssh_policy_effective_allowed_users | join(' ') }}

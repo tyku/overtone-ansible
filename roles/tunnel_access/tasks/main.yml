@@ -1,0 +1,54 @@
+---
+- name: Prevent removal of the active Ansible administrator
+  ansible.builtin.assert:
+    that:
+      - item.name != (ansible_user | default(''))
+      - item.name != (overtone_admin_user | default(''))
+    fail_msg: "Refusing to remove the active automation account {{ item.name }}."
+  loop: "{{ tunnel_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - >-
+      (item.state | default('present')) == 'absent' or
+      (inventory_hostname in groups['swarm_workers'] and
+       inventory_hostname not in item.target_hosts)
+
+- name: Manage present tunnel identities on this host
+  ansible.builtin.include_tasks: present.yml
+  loop: "{{ tunnel_access_users }}"
+  loop_control:
+    loop_var: tunnel_account
+    label: "{{ tunnel_account.name }}"
+  when:
+    - >-
+      inventory_hostname in groups['bastion_hosts'] or
+      inventory_hostname in tunnel_account.target_hosts
+    - (tunnel_account.state | default('present')) == 'present'
+
+- name: Remove any sudo policy from obsolete tunnel identities
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ item.name }}"
+    state: absent
+  loop: "{{ tunnel_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - >-
+      (item.state | default('present')) == 'absent' or
+      (inventory_hostname in groups['swarm_workers'] and
+       inventory_hostname not in item.target_hosts)
+
+- name: Remove obsolete tunnel identities
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    state: absent
+    remove: true
+  loop: "{{ tunnel_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - >-
+      (item.state | default('present')) == 'absent' or
+      (inventory_hostname in groups['swarm_workers'] and
+       inventory_hostname not in item.target_hosts)
