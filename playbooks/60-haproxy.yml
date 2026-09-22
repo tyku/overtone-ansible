@@ -1,6 +1,6 @@
 ---
 - name: Install and configure the standalone HAProxy server
-  hosts: haproxy
+  hosts: haproxy_hosts
   become: true
   gather_facts: true
   serial: 1

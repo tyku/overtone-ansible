@@ -1,4 +1,3 @@
 ---
-overtone_admin_user: overtone
 overtone_admin_public_key_path: >-
   {{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/overtone-infra/keys/overtone-production.pub

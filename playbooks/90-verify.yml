@@ -47,7 +47,7 @@
         fail_msg: The manager does not see exactly three Swarm nodes.
 
 - name: Verify HAProxy service
-  hosts: haproxy
+  hosts: haproxy_hosts
   become: true
   gather_facts: false
 

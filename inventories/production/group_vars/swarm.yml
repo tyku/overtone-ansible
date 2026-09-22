@@ -5,4 +5,4 @@ docker_ce_version: CHANGE_ME_DOCKER_CE_VERSION
 
 # Membership in the docker group is effectively root-equivalent access.
 docker_users:
-  - overtone
+  - "{{ overtone_admin_user }}"

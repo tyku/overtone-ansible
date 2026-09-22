@@ -5,12 +5,12 @@ all:
   children:
     bootstrap_targets:
       children:
-        haproxy:
+        haproxy_hosts:
           hosts:
             haproxy:
               ansible_host: CHANGE_ME_HAPROXY_PUBLIC_IP
               ansible_user: CHANGE_ME_PROVIDER_USER
-              ansible_ssh_private_key_file: CHANGE_ME_PROVIDER_PRIVATE_KEY_PATH
+              overtone_admin_user: overtone_haproxy
 
         swarm:
           children:
@@ -19,15 +19,15 @@ all:
                 manager-1:
                   ansible_host: CHANGE_ME_MANAGER_1_PUBLIC_IP
                   ansible_user: CHANGE_ME_PROVIDER_USER
-                  ansible_ssh_private_key_file: CHANGE_ME_PROVIDER_PRIVATE_KEY_PATH
+                  overtone_admin_user: overtone_manager-1
 
             swarm_workers:
               hosts:
                 worker-1:
                   ansible_host: CHANGE_ME_WORKER_1_PUBLIC_IP
                   ansible_user: CHANGE_ME_PROVIDER_USER
-                  ansible_ssh_private_key_file: CHANGE_ME_PROVIDER_PRIVATE_KEY_PATH
+                  overtone_admin_user: overtone_worker-1
                 worker-2:
                   ansible_host: CHANGE_ME_WORKER_2_PUBLIC_IP
                   ansible_user: CHANGE_ME_PROVIDER_USER
-                  ansible_ssh_private_key_file: CHANGE_ME_PROVIDER_PRIVATE_KEY_PATH
+                  overtone_admin_user: overtone_worker-2

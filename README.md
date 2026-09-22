@@ -8,6 +8,15 @@
 
 Приложение, PostgreSQL, S3, TLS и Docker Stack здесь не настраиваются.
 
+Административные пользователи внутренних серверов:
+
+- `haproxy` → `overtone_haproxy`;
+- `manager-1` → `overtone_manager-1`;
+- `worker-1` → `overtone_worker-1`;
+- `worker-2` → `overtone_worker-2`.
+
+Bastion сохраняет уже настроенного пользователя из локального SSH alias.
+
 ## Что нужно заполнить
 
 Найдите все оставшиеся заглушки:
@@ -18,16 +27,16 @@ rg -n 'CHANGE_ME' . --glob '!README.md'
 
 Заполняются только локальные файлы:
 
-1. `inventories/bootstrap/hosts.yml` — публичные IP, исходные пользователи и
-   пути к исходным ключам провайдера.
+1. `inventories/bootstrap/hosts.yml` — публичные IP и исходные пользователи
+   провайдера. Первоначальный пароль в файл не записывается.
 2. `inventories/production/hosts.yml` — приватные IP четырёх внутренних VPS и
    приватный IP bastion.
 3. `inventories/production/group_vars/swarm.yml` — точная версия Docker после
    подключения официального Docker-репозитория.
 
-Не помещайте пароли, join tokens и приватные ключи в inventory. Если исходный
-доступ использует пароль, удалите `ansible_ssh_private_key_file` для нужного
-хоста и запускайте bootstrap с `--ask-pass`. Если sudo требует пароль, добавьте
+Не помещайте пароли, join tokens и приватные ключи в inventory. Первоначальный
+пароль SSH запрашивается интерактивно через `--ask-pass`. Если исходный
+пользователь требует отдельный пароль для sudo, добавьте
 `--ask-become-pass`.
 
 ## Локальная подготовка
@@ -58,14 +67,15 @@ ansible-inventory -i inventories/bootstrap/hosts.yml --graph
 Проверка первоначального SSH-доступа к одной машине:
 
 ```bash
-ansible -i inventories/bootstrap/hosts.yml haproxy -m ansible.builtin.ping
+ansible -i inventories/bootstrap/hosts.yml haproxy \
+  -m ansible.builtin.ping --ask-pass
 ```
 
 Продолжайте только если результат содержит `SUCCESS`.
 
 ## 2. Bootstrap внутренних серверов
 
-Bootstrap создаёт `overtone`, блокирует его пароль, устанавливает только
+Bootstrap создаёт заданного для сервера пользователя `overtone_*`, блокирует его пароль, устанавливает только
 публичный ключ и предоставляет passwordless sudo. Он не изменяет sshd,
 root-login, парольную аутентификацию или firewall.
 
@@ -73,14 +83,14 @@ root-login, парольную аутентификацию или firewall.
 
 ```bash
 ansible-playbook -i inventories/bootstrap/hosts.yml playbooks/00-bootstrap.yml \
-  --limit haproxy --check --diff
+  --limit haproxy --ask-pass --check --diff
 ```
 
 Первый реальный запуск:
 
 ```bash
 ansible-playbook -i inventories/bootstrap/hosts.yml playbooks/00-bootstrap.yml \
-  --limit haproxy --diff
+  --limit haproxy --ask-pass --diff
 ```
 
 Затем проверьте новый вход в отдельном терминале, не закрывая старую сессию:
@@ -89,14 +99,14 @@ ansible-playbook -i inventories/bootstrap/hosts.yml playbooks/00-bootstrap.yml \
 ssh -J overtone-bastion \
   -i ~/.ssh/overtone-infra/keys/overtone-production \
   -o UserKnownHostsFile=~/.ssh/overtone-infra/known_hosts \
-  overtone@CHANGE_ME_HAPROXY_PRIVATE_IP
+  overtone_haproxy@CHANGE_ME_HAPROXY_PRIVATE_IP
 ```
 
 Проверьте `sudo -n true`. Только после успешной проверки повторите bootstrap с
 `--limit manager-1`, затем `worker-1` и `worker-2`.
 
 Откат bootstrap: через исходного пользователя или консоль провайдера удалить
-`/etc/sudoers.d/overtone`, ключ из `/home/overtone/.ssh/authorized_keys` и при
+`/etc/sudoers.d/overtone_*`, ключ из `/home/overtone_*/.ssh/authorized_keys` и при
 необходимости пользователя. Не удаляйте пользователя до проверки, что он не
 используется активной сессией.
 
@@ -112,7 +122,7 @@ ssh -J overtone-bastion \
 ```sshconfig
 Host overtone-manager-1
     HostName CHANGE_ME_MANAGER_1_PRIVATE_IP
-    User overtone
+    User overtone_manager-1
     IdentityFile ~/.ssh/overtone-infra/keys/overtone-production
     IdentitiesOnly yes
     ProxyJump overtone-bastion
@@ -167,7 +177,8 @@ Swarm-узлы при необходимости перезагружаются 
 ## 5. SSH hardening внутренних серверов
 
 Bastion исключён из `30-ssh-hardening.yml`. Перед каждым узлом сохраните одну
-рабочую SSH-сессию и проверьте второй вход под `overtone` через bastion.
+рабочую SSH-сессию и проверьте второй вход под соответствующим `overtone_*`
+через bastion.
 
 Проверка без применения:
 
@@ -274,7 +285,7 @@ ssh overtone-manager-1 docker node ls
 ```bash
 ssh -J overtone-bastion \
   -i ~/.ssh/overtone-infra/keys/overtone-production \
-  overtone@CHANGE_ME_MANAGER_1_PRIVATE_IP docker node ls
+  overtone_manager-1@CHANGE_ME_MANAGER_1_PRIVATE_IP docker node ls
 ```
 
 ## 9. HAProxy

@@ -3,7 +3,7 @@
 # Bastion uses the SSH alias that is already configured on the Mac.
 all:
   children:
-    bastion:
+    bastion_hosts:
       hosts:
         bastion:
           ansible_host: overtone-bastion
@@ -11,9 +11,11 @@ all:
 
     internal:
       children:
-        haproxy:
+        haproxy_hosts:
           hosts:
             haproxy:
+              ansible_user: overtone_haproxy
+              overtone_admin_user: overtone_haproxy
               ansible_host: CHANGE_ME_HAPROXY_PRIVATE_IP
               private_ip: CHANGE_ME_HAPROXY_PRIVATE_IP
 
@@ -22,14 +24,20 @@ all:
             swarm_managers:
               hosts:
                 manager-1:
+                  ansible_user: overtone_manager-1
+                  overtone_admin_user: overtone_manager-1
                   ansible_host: CHANGE_ME_MANAGER_1_PRIVATE_IP
                   private_ip: CHANGE_ME_MANAGER_1_PRIVATE_IP
 
             swarm_workers:
               hosts:
                 worker-1:
+                  ansible_user: overtone_worker-1
+                  overtone_admin_user: overtone_worker-1
                   ansible_host: CHANGE_ME_WORKER_1_PRIVATE_IP
                   private_ip: CHANGE_ME_WORKER_1_PRIVATE_IP
                 worker-2:
+                  ansible_user: overtone_worker-2
+                  overtone_admin_user: overtone_worker-2
                   ansible_host: CHANGE_ME_WORKER_2_PRIVATE_IP
                   private_ip: CHANGE_ME_WORKER_2_PRIVATE_IP
