@@ -1,0 +1,117 @@
+---
+- name: Validate Docker platform support
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution in ['Ubuntu', 'Debian']
+      - ansible_architecture in docker_apt_architecture_map
+    fail_msg: >-
+      The Docker role currently supports Debian/Ubuntu on amd64, arm64 or armhf.
+  tags:
+    - always
+
+- name: Install Docker repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - gnupg
+      - python3-debian
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  tags:
+    - docker_repo
+
+- name: Create the APT keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - docker_repo
+
+- name: Download Docker's official repository signing key
+  ansible.builtin.get_url:
+    url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: "0644"
+  tags:
+    - docker_repo
+
+- name: Configure Docker's official APT repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    types:
+      - deb
+    uris:
+      - "https://download.docker.com/linux/{{ ansible_distribution | lower }}"
+    suites:
+      - "{{ ansible_distribution_release }}"
+    components:
+      - stable
+    architectures:
+      - "{{ docker_apt_architecture_map[ansible_architecture] }}"
+    signed_by: /etc/apt/keyrings/docker.asc
+    enabled: true
+    state: present
+  tags:
+    - docker_repo
+
+- name: Refresh APT cache after adding Docker's repository
+  ansible.builtin.apt:
+    update_cache: true
+  tags:
+    - docker_repo
+
+- name: Require an exact Docker CE package version
+  ansible.builtin.assert:
+    that:
+      - docker_ce_version is string
+      - docker_ce_version | length > 0
+      - "'CHANGE_ME' not in docker_ce_version"
+    fail_msg: >-
+      Run the docker_repo tag first, inspect `apt-cache madison docker-ce`, then
+      set one exact docker_ce_version in inventories/production/group_vars/swarm.yml.
+  tags:
+    - docker_install
+
+- name: Install the pinned Docker Engine and Python SDK
+  ansible.builtin.apt:
+    name:
+      - "docker-ce={{ docker_ce_version }}"
+      - "docker-ce-cli={{ docker_ce_version }}"
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+      - python3-docker
+    state: present
+    allow_downgrade: true
+    update_cache: true
+  tags:
+    - docker_install
+
+- name: Enable and start Docker
+  ansible.builtin.systemd_service:
+    name: docker.service
+    enabled: true
+    state: started
+  tags:
+    - docker_install
+
+- name: Add explicitly approved administrators to the docker group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups:
+      - docker
+    append: true
+  loop: "{{ docker_users }}"
+  tags:
+    - docker_install
+
+- name: Reset SSH so new group membership is visible
+  ansible.builtin.meta: reset_connection
+  tags:
+    - docker_install

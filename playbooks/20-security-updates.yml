@@ -1,0 +1,37 @@
+---
+- name: Configure automatic security updates without automatic reboot
+  hosts: all
+  become: true
+  gather_facts: true
+  serial: 1
+
+  tasks:
+    - name: Install unattended-upgrades
+      ansible.builtin.apt:
+        name: unattended-upgrades
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Enable daily unattended upgrades and disable automatic reboot
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/52overtone-unattended-upgrades
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+          Unattended-Upgrade::Automatic-Reboot "false";
+
+    - name: Enable the APT update timer
+      ansible.builtin.systemd_service:
+        name: apt-daily.timer
+        enabled: true
+        state: started
+
+    - name: Enable the unattended-upgrade timer
+      ansible.builtin.systemd_service:
+        name: apt-daily-upgrade.timer
+        enabled: true
+        state: started

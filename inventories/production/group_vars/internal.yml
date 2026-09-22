@@ -1,0 +1,3 @@
+---
+# Uses the already configured local SSH alias; no private key is copied to bastion.
+ansible_ssh_common_args: "-o ProxyJump=overtone-bastion"

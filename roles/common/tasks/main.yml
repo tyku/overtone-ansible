@@ -1,0 +1,23 @@
+---
+- name: Validate the supported operating system family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == "Debian"
+    fail_msg: The common role currently supports Debian and Ubuntu only.
+
+- name: Set the server hostname from the inventory name
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Install common packages and the time synchronization service
+  ansible.builtin.apt:
+    name: "{{ common_packages + [time_sync_service] }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Enable and start time synchronization
+  ansible.builtin.systemd_service:
+    name: "{{ time_sync_service }}"
+    enabled: true
+    state: started

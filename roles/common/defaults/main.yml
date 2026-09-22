@@ -1,0 +1,14 @@
+---
+common_packages:
+  - acl
+  - ca-certificates
+  - curl
+  - git
+  - gnupg
+  - htop
+  - jq
+  - rsync
+  - unzip
+  - vim
+
+time_sync_service: systemd-timesyncd

@@ -1,0 +1,35 @@
+---
+# Copy this file to hosts.yml and replace every CHANGE_ME value locally.
+# Bastion uses the SSH alias that is already configured on the Mac.
+all:
+  children:
+    bastion:
+      hosts:
+        bastion:
+          ansible_host: overtone-bastion
+          private_ip: CHANGE_ME_BASTION_PRIVATE_IP
+
+    internal:
+      children:
+        haproxy:
+          hosts:
+            haproxy:
+              ansible_host: CHANGE_ME_HAPROXY_PRIVATE_IP
+              private_ip: CHANGE_ME_HAPROXY_PRIVATE_IP
+
+        swarm:
+          children:
+            swarm_managers:
+              hosts:
+                manager-1:
+                  ansible_host: CHANGE_ME_MANAGER_1_PRIVATE_IP
+                  private_ip: CHANGE_ME_MANAGER_1_PRIVATE_IP
+
+            swarm_workers:
+              hosts:
+                worker-1:
+                  ansible_host: CHANGE_ME_WORKER_1_PRIVATE_IP
+                  private_ip: CHANGE_ME_WORKER_1_PRIVATE_IP
+                worker-2:
+                  ansible_host: CHANGE_ME_WORKER_2_PRIVATE_IP
+                  private_ip: CHANGE_ME_WORKER_2_PRIVATE_IP

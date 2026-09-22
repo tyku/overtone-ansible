@@ -1,0 +1,61 @@
+---
+- name: Verify common services on every server
+  hosts: all
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Collect service facts
+      ansible.builtin.service_facts:
+
+    - name: Verify time synchronization service
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services[time_sync_service + '.service'].state == 'running'
+        fail_msg: "{{ time_sync_service }} is not running on {{ inventory_hostname }}."
+
+- name: Verify Docker and Swarm state
+  hosts: swarm
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Read local Swarm state
+      community.docker.docker_swarm_info:
+      register: local_swarm
+
+    - name: Verify this node belongs to a Swarm
+      ansible.builtin.assert:
+        that:
+          - local_swarm.docker_swarm_active | bool
+
+- name: Verify the manager sees all three nodes
+  hosts: swarm_managers
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Read Swarm node list
+      community.docker.docker_swarm_info:
+        nodes: true
+      register: manager_swarm
+
+    - name: Verify expected Swarm node count
+      ansible.builtin.assert:
+        that:
+          - manager_swarm.nodes | length == 3
+        fail_msg: The manager does not see exactly three Swarm nodes.
+
+- name: Verify HAProxy service
+  hosts: haproxy
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Collect service facts
+      ansible.builtin.service_facts:
+
+    - name: Verify HAProxy is running
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['haproxy.service'].state == 'running'

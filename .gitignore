@@ -1,0 +1,7 @@
+.collections/
+inventories/bootstrap/hosts.yml
+inventories/production/hosts.yml
+*.retry
+.vault-password*
+.DS_Store
+.idea/

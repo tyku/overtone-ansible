@@ -1,0 +1,41 @@
+---
+# Bastion intentionally excluded: its SSH access is managed manually.
+- name: Harden SSH on internal servers one at a time
+  hosts: internal
+  become: true
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+
+  pre_tasks:
+    - name: Require an explicit confirmation of the tested overtone login
+      ansible.builtin.assert:
+        that:
+          - ssh_hardening_confirmed | default(false) | bool
+        fail_msg: >-
+          First verify a separate interactive login through bastion. Then rerun
+          with -e ssh_hardening_confirmed=true and --limit for one server.
+
+  tasks:
+    - name: Install the SSH hardening drop-in
+      ansible.builtin.template:
+        src: templates/00-overtone-hardening.conf.j2
+        dest: /etc/ssh/sshd_config.d/00-overtone-hardening.conf
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+        validate: /usr/sbin/sshd -t -f %s
+      notify: Validate and reload SSH
+
+  handlers:
+    - name: Validate complete SSH configuration
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+      listen: Validate and reload SSH
+
+    - name: Reload SSH without terminating the current session
+      ansible.builtin.systemd_service:
+        name: ssh
+        state: reloaded
+      listen: Validate and reload SSH

@@ -1,0 +1,33 @@
+---
+# Copy this file to hosts.yml and replace every CHANGE_ME value locally.
+# Bastion is deliberately absent: its administrative SSH access already works.
+all:
+  children:
+    bootstrap_targets:
+      children:
+        haproxy:
+          hosts:
+            haproxy:
+              ansible_host: CHANGE_ME_HAPROXY_PUBLIC_IP
+              ansible_user: CHANGE_ME_PROVIDER_USER
+              ansible_ssh_private_key_file: CHANGE_ME_PROVIDER_PRIVATE_KEY_PATH
+
+        swarm:
+          children:
+            swarm_managers:
+              hosts:
+                manager-1:
+                  ansible_host: CHANGE_ME_MANAGER_1_PUBLIC_IP
+                  ansible_user: CHANGE_ME_PROVIDER_USER
+                  ansible_ssh_private_key_file: CHANGE_ME_PROVIDER_PRIVATE_KEY_PATH
+
+            swarm_workers:
+              hosts:
+                worker-1:
+                  ansible_host: CHANGE_ME_WORKER_1_PUBLIC_IP
+                  ansible_user: CHANGE_ME_PROVIDER_USER
+                  ansible_ssh_private_key_file: CHANGE_ME_PROVIDER_PRIVATE_KEY_PATH
+                worker-2:
+                  ansible_host: CHANGE_ME_WORKER_2_PUBLIC_IP
+                  ansible_user: CHANGE_ME_PROVIDER_USER
+                  ansible_ssh_private_key_file: CHANGE_ME_PROVIDER_PRIVATE_KEY_PATH

@@ -1,0 +1,9 @@
+---
+- name: Install a pinned Docker Engine version on Swarm nodes
+  hosts: swarm
+  become: true
+  gather_facts: true
+  serial: 1
+
+  roles:
+    - role: docker_engine
