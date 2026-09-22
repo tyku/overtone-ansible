@@ -1,0 +1,14 @@
+# Managed by Ansible: administrative SSH without forwarding.
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+
+AllowTcpForwarding no
+DisableForwarding yes
+AllowAgentForwarding no
+X11Forwarding no
+PermitTunnel no
+GatewayPorts no
+
+AllowUsers {{ ssh_allowed_users | join(' ') }}

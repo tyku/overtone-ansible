@@ -1,0 +1,20 @@
+---
+- name: Reproduce the role-specific UFW policy one server at a time
+  hosts: all
+  become: true
+  gather_facts: true
+  serial: 1
+  any_errors_fatal: true
+
+  pre_tasks:
+    - name: Require explicit confirmation before changing firewall rules
+      ansible.builtin.assert:
+        that:
+          - access_policy_confirmed | default(false) | bool
+        fail_msg: >-
+          This playbook changes network access. First keep an existing SSH
+          session and provider console open, then rerun with
+          -e access_policy_confirmed=true and --limit for one server.
+
+  roles:
+    - role: firewall

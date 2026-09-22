@@ -6,6 +6,9 @@ all:
     bastion_hosts:
       hosts:
         bastion:
+          ssh_allowed_users:
+            - CHANGE_ME_BASTION_USER
+          firewall_admin_public_cidr: CHANGE_ME_ADMIN_PUBLIC_IP/32
           ansible_host: overtone-bastion
           private_ip: CHANGE_ME_BASTION_PRIVATE_IP
 

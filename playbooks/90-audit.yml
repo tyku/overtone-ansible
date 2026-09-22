@@ -1,0 +1,96 @@
+---
+- name: Audit the effective firewall and SSH access policy without changing it
+  hosts: all
+  become: true
+  gather_facts: false
+  serial: 1
+
+  tasks:
+    - name: Validate sshd configuration syntax
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+
+    - name: Read effective sshd configuration
+      ansible.builtin.command: /usr/sbin/sshd -T
+      changed_when: false
+      register: access_audit_sshd
+
+    - name: Read UFW status
+      ansible.builtin.command: /usr/sbin/ufw status verbose
+      changed_when: false
+      register: access_audit_ufw_status
+
+    - name: Read reproducible UFW commands
+      ansible.builtin.command: /usr/sbin/ufw show added
+      changed_when: false
+      register: access_audit_ufw_rules
+
+    - name: Verify the common SSH restrictions
+      ansible.builtin.assert:
+        that:
+          - "'permitrootlogin no' in access_audit_sshd.stdout"
+          - "'pubkeyauthentication yes' in access_audit_sshd.stdout"
+          - "'passwordauthentication no' in access_audit_sshd.stdout"
+          - "'kbdinteractiveauthentication no' in access_audit_sshd.stdout"
+          - "'allowagentforwarding no' in access_audit_sshd.stdout"
+          - "'x11forwarding no' in access_audit_sshd.stdout"
+          - "'permittunnel no' in access_audit_sshd.stdout"
+          - "'gatewayports no' in access_audit_sshd.stdout"
+        fail_msg: "The effective sshd policy differs on {{ inventory_hostname }}."
+
+    - name: Verify expected SSH users are allowed
+      ansible.builtin.assert:
+        that:
+          - "item in access_audit_sshd.stdout"
+        fail_msg: "Expected SSH user {{ item }} is absent from AllowUsers."
+      loop: "{{ ssh_allowed_users }}"
+
+    - name: Verify bastion local forwarding policy
+      ansible.builtin.assert:
+        that:
+          - "'allowtcpforwarding local' in access_audit_sshd.stdout"
+          - "'disableforwarding no' in access_audit_sshd.stdout"
+        fail_msg: Bastion forwarding policy differs from the documented state.
+      when: ssh_policy_profile == 'bastion'
+
+    - name: Verify every bastion PermitOpen destination
+      ansible.builtin.assert:
+        that:
+          - "(hostvars[item].private_ip ~ ':22') in access_audit_sshd.stdout"
+        fail_msg: "Bastion PermitOpen is missing {{ item }}:22."
+      loop: "{{ groups['internal'] }}"
+      when: ssh_policy_profile == 'bastion'
+
+    - name: Verify locked forwarding policy
+      ansible.builtin.assert:
+        that:
+          - "'allowtcpforwarding no' in access_audit_sshd.stdout"
+          - "'disableforwarding yes' in access_audit_sshd.stdout"
+        fail_msg: Forwarding is not fully disabled on this server.
+      when: ssh_policy_profile == 'locked'
+
+    - name: Verify worker remote forwarding policy
+      ansible.builtin.assert:
+        that:
+          - "'allowtcpforwarding remote' in access_audit_sshd.stdout"
+          - "'disableforwarding no' in access_audit_sshd.stdout"
+        fail_msg: Worker reverse forwarding policy differs from the documented state.
+      when: ssh_policy_profile == 'worker'
+
+    - name: Verify every worker PermitListen endpoint
+      ansible.builtin.assert:
+        that:
+          - "item in access_audit_sshd.stdout"
+        fail_msg: "Worker PermitListen is missing {{ item }}."
+      loop: "{{ ssh_permit_listen }}"
+      when: ssh_policy_profile == 'worker'
+
+    - name: Verify UFW is active
+      ansible.builtin.assert:
+        that:
+          - "'Status: active' in access_audit_ufw_status.stdout"
+        fail_msg: "UFW is not active on {{ inventory_hostname }}."
+
+    - name: Show the current UFW policy for review
+      ansible.builtin.debug:
+        var: access_audit_ufw_rules.stdout_lines

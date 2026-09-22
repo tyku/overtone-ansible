@@ -1,5 +1,5 @@
 ---
-- name: Apply common operating system configuration
+- name: Apply the common system baseline
   hosts: all
   become: true
   gather_facts: true

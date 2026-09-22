@@ -1,170 +1,221 @@
 # Overtone Ansible
 
-Этот проект подготавливает пять существующих VPS:
+Ansible-описание пяти существующих VPS:
 
-- `bastion` — уже настроенная точка SSH-входа;
-- `haproxy` — отдельный TCP-балансировщик портов 80/443;
+- `bastion` — ограниченный SSH gateway;
+- `haproxy` — отдельный TCP-балансировщик 80/443;
 - `manager-1`, `worker-1`, `worker-2` — Docker Swarm.
 
 Приложение, PostgreSQL, S3, TLS и Docker Stack здесь не настраиваются.
 
-Административные пользователи внутренних серверов:
+Текущие firewall и SSH-настройки сначала были выполнены вручную. Playbook’и
+`20-firewall.yml` и `30-ssh-policy.yml` воспроизводят это состояние на случай
+пересоздания серверов. Само наличие файлов ничего на VPS не изменяет.
+
+## Административные пользователи
 
 - `haproxy` → `overtone_haproxy`;
 - `manager-1` → `overtone_manager-1`;
 - `worker-1` → `overtone_worker-1`;
-- `worker-2` → `overtone_worker-2`.
+- `worker-2` → `overtone_worker-2`;
+- bastion сохраняет уже настроенного пользователя из `overtone-bastion`.
 
-Bastion сохраняет уже настроенного пользователя из локального SSH alias.
+Один публичный административный ключ может быть установлен всем этим
+пользователям. Приватный ключ остаётся только на Mac.
 
-## Что нужно заполнить
+## Playbook’и
 
-Найдите все оставшиеся заглушки:
+| Playbook | Назначение |
+| --- | --- |
+| `00-bootstrap.yml` | Создаёт `overtone_*`, устанавливает публичный ключ и passwordless sudo. Не меняет SSH/firewall. |
+| `10-system-baseline.yml` | Hostname, базовые пакеты, time sync и unattended security updates без automatic reboot. |
+| `20-firewall.yml` | Воспроизводит role-specific UFW policy. Требует явного подтверждения. |
+| `30-ssh-policy.yml` | Воспроизводит три SSH-профиля с проверкой и rollback. Требует явного подтверждения. |
+| `40-docker.yml` | Устанавливает зафиксированную версию Docker на Swarm-узлы. |
+| `50-swarm.yml` | Создаёт manager и присоединяет workers через приватную сеть. |
+| `60-haproxy.yml` | Устанавливает HAProxy и проксирует TCP 80/443 на workers. |
+| `90-audit.yml` | Read-only аудит эффективных SSH/UFW-настроек. |
+
+## Зафиксированная модель доступа
+
+### Bastion
+
+- публичный SSH только с `firewall_admin_public_cidr`;
+- `PasswordAuthentication no`, `PermitRootLogin no`;
+- agent/X11/tunnel forwarding запрещены;
+- разрешён только `local` forwarding;
+- `PermitOpen` содержит приватные IP четырёх внутренних VPS на TCP 22;
+- приватных пользовательских ключей на bastion нет.
+
+### HAProxy и manager
+
+- SSH только с приватного IP bastion;
+- root/password login запрещены;
+- весь SSH forwarding запрещён через `DisableForwarding yes`;
+- HAProxy принимает публичные TCP 80/443;
+- manager принимает TCP 2377 от workers.
+
+### Workers
+
+- SSH только с приватного IP bastion;
+- TCP 80/443 только с приватного IP HAProxy;
+- root/password/agent/X11/tunnel forwarding запрещены;
+- разрешён только `remote` forwarding (`ssh -R`);
+- `GatewayPorts no`;
+- `PermitListen` ограничен `127.0.0.1:19000–19002`.
+
+### Swarm private network
+
+Между Swarm-узлами разрешены:
+
+- TCP/UDP 7946;
+- UDP 4789;
+- ESP, IP protocol 50;
+- TCP 2377 только на manager со стороны workers.
+
+UFW не является единственной защитой опубликованных Docker-портов: Docker может
+обходить обычные UFW chains. Внешний firewall/security groups провайдера остаётся
+обязательным и этим проектом не управляется.
+
+## Что ещё нужно заполнить
+
+Проверьте все placeholders:
 
 ```bash
-rg -n 'CHANGE_ME' . --glob '!README.md'
+cd /Users/artemkud/dev/overtone-ansible
+rg -n 'CHANGE_ME' . --glob '!.collections/**' --glob '!.git/**'
 ```
 
-Заполняются только локальные файлы:
+Сейчас ожидаются:
 
-1. `inventories/bootstrap/hosts.yml` — публичные IP и исходные пользователи
-   провайдера. Первоначальный пароль в файл не записывается.
-2. `inventories/production/hosts.yml` — приватные IP четырёх внутренних VPS и
-   приватный IP bastion.
-3. `inventories/production/group_vars/swarm.yml` — точная версия Docker после
-   подключения официального Docker-репозитория.
+1. Игнорируемый `inventories/production/hosts.yml`:
+   - приватные IP bastion, HAProxy, manager и workers;
+   - приватные `ansible_host` внутренних VPS;
+   - реальный bastion username для `AllowUsers`;
+   - ваш публичный IPv4 `/32` для UFW.
+2. `inventories/production/group_vars/swarm.yml`:
+   - точная версия Docker после настройки официального repository.
 
-Не помещайте пароли, join tokens и приватные ключи в inventory. Первоначальный
-пароль SSH запрашивается интерактивно через `--ask-pass`. Если исходный
-пользователь требует отдельный пароль для sudo, добавьте
-`--ask-become-pass`.
+Проверьте, что интерфейсы действительно называются `eth0` и `eth1`. Если это не
+так, измените `public_interface` и `private_interface` в
+`inventories/production/group_vars/all.yml`.
 
 ## Локальная подготовка
-
-Запускайте команды из корня этого проекта, иначе `ansible.cfg` может не быть
-подхвачен.
 
 ```bash
 cd /Users/artemkud/dev/overtone-ansible
 ansible-galaxy collection install -r requirements.yml -p .collections
-ansible --version
-ansible-config dump --only-changed
 ```
 
-`host_key_checking` включён. Все host keys хранятся в
-`~/.ssh/overtone-infra/known_hosts`. Перед принятием нового ключа сравните его
-fingerprint с данными в консоли провайдера. `ssh-keyscan` сам по себе не
-подтверждает подлинность сервера.
+Ansible использует отдельный known_hosts:
 
-## 1. Проверить bootstrap inventory
-
-Команда читает inventory и не подключается к VPS:
-
-```bash
-ansible-inventory -i inventories/bootstrap/hosts.yml --graph
+```text
+~/.ssh/overtone-infra/known_hosts
 ```
 
-Проверка первоначального SSH-доступа к одной машине:
+Host key checking включён. `StrictHostKeyChecking=no` не используется.
 
-```bash
-ansible -i inventories/bootstrap/hosts.yml haproxy \
-  -m ansible.builtin.ping --ask-pass
-```
+## Проверки без подключения к VPS
 
-Продолжайте только если результат содержит `SUCCESS`.
-
-## 2. Bootstrap внутренних серверов
-
-Bootstrap создаёт заданного для сервера пользователя `overtone_*`, блокирует его пароль, устанавливает только
-публичный ключ и предоставляет passwordless sudo. Он не изменяет sshd,
-root-login, парольную аутентификацию или firewall.
-
-Предварительная проверка для одной машины:
-
-```bash
-ansible-playbook -i inventories/bootstrap/hosts.yml playbooks/00-bootstrap.yml \
-  --limit haproxy --ask-pass --check --diff
-```
-
-Первый реальный запуск:
-
-```bash
-ansible-playbook -i inventories/bootstrap/hosts.yml playbooks/00-bootstrap.yml \
-  --limit haproxy --ask-pass --diff
-```
-
-Затем проверьте новый вход в отдельном терминале, не закрывая старую сессию:
-
-```bash
-ssh -J overtone-bastion \
-  -i ~/.ssh/overtone-infra/keys/overtone-production \
-  -o UserKnownHostsFile=~/.ssh/overtone-infra/known_hosts \
-  overtone_haproxy@CHANGE_ME_HAPROXY_PRIVATE_IP
-```
-
-Проверьте `sudo -n true`. Только после успешной проверки повторите bootstrap с
-`--limit manager-1`, затем `worker-1` и `worker-2`.
-
-Откат bootstrap: через исходного пользователя или консоль провайдера удалить
-`/etc/sudoers.d/overtone_*`, ключ из `/home/overtone_*/.ssh/authorized_keys` и при
-необходимости пользователя. Не удаляйте пользователя до проверки, что он не
-используется активной сессией.
-
-## 3. Проверить production-доступ через bastion
-
-Сначала заполните `inventories/production/hosts.yml`. Локальная SSH-секция
-`overtone-bastion` уже существует и этим проектом не изменяется. Приватный ключ
-никогда не копируется на bastion; `ProxyJump` выполняется локальным OpenSSH.
-
-Для удобного ручного входа можно добавить в локальный
-`~/.ssh/overtone-infra/config/hosts.conf` отдельные секции такого вида:
-
-```sshconfig
-Host overtone-manager-1
-    HostName CHANGE_ME_MANAGER_1_PRIVATE_IP
-    User overtone_manager-1
-    IdentityFile ~/.ssh/overtone-infra/keys/overtone-production
-    IdentitiesOnly yes
-    ProxyJump overtone-bastion
-    UserKnownHostsFile ~/.ssh/overtone-infra/known_hosts
-```
-
-Аналогично создаются локальные aliases для HAProxy и обоих workers. Эти секции
-находятся только на Mac и не копируют ключ на bastion.
+Эти команды только читают локальные YAML-файлы:
 
 ```bash
 ansible-inventory -i inventories/production/hosts.yml --graph
-ansible -i inventories/production/hosts.yml internal -m ansible.builtin.ping
+
+for playbook in playbooks/*.yml; do
+  case "$playbook" in
+    playbooks/00-bootstrap.yml) inventory=inventories/bootstrap/hosts.yml ;;
+    *) inventory=inventories/production/hosts.yml ;;
+  esac
+
+  ansible-playbook -i "$inventory" "$playbook" --syntax-check
+  ansible-playbook -i "$inventory" "$playbook" --list-hosts
+  ansible-playbook -i "$inventory" "$playbook" --list-tasks
+done
 ```
 
-Продолжайте только когда все четыре внутренних сервера возвращают `SUCCESS`.
-
-## 4. Общая настройка и security updates
-
-`10-common.yml` задаёт hostname, ставит базовые пакеты и включает
-`systemd-timesyncd`. Bastion получает только эти общие настройки; его SSH не
-меняется.
-
-```bash
-ansible-playbook -i inventories/production/hosts.yml playbooks/10-common.yml \
-  --limit haproxy --check --diff
-ansible-playbook -i inventories/production/hosts.yml playbooks/10-common.yml \
-  --limit haproxy --diff
-```
-
-После проверки применяйте к остальным узлам по одному.
-
-Security updates устанавливаются отдельным этапом; автоматическая перезагрузка
-отключена:
+`90-audit.yml` тоже ничего не изменяет, но уже подключается к VPS и выполняет
+read-only команды `sshd -t`, `sshd -T`, `ufw status` и `ufw show added`:
 
 ```bash
 ansible-playbook -i inventories/production/hosts.yml \
-  playbooks/20-security-updates.yml --limit haproxy --check --diff
-ansible-playbook -i inventories/production/hosts.yml \
-  playbooks/20-security-updates.yml --limit haproxy --diff
+  playbooks/90-audit.yml --limit haproxy
 ```
 
-Проверка на сервере:
+## Безопасное принятие существующего firewall под управление Ansible
+
+`20-firewall.yml` работает additively:
+
+- добавляет отсутствующие разрешающие правила;
+- выставляет default deny incoming / allow outgoing;
+- включает UFW;
+- не выполняет `ufw reset`;
+- не удаляет неизвестные или старые правила автоматически.
+
+Поэтому он безопаснее для первоначального adoption, но лишние старые правила
+потребуется удалять отдельным явным изменением.
+
+Сначала один сервер в check mode:
+
+```bash
+ansible-playbook -i inventories/production/hosts.yml \
+  playbooks/20-firewall.yml \
+  --limit haproxy \
+  -e access_policy_confirmed=true \
+  --check
+```
+
+Перед реальным применением необходимо сохранить текущую SSH-сессию и открыть
+консоль провайдера. Реальный запуск без `--check` сейчас не требуется.
+
+## Безопасное принятие существующей SSH policy
+
+`30-ssh-policy.yml` управляет теми же файлами, которые создавались вручную:
+
+```text
+/etc/ssh/sshd_config.d/00-overtone-bastion.conf
+/etc/ssh/sshd_config.d/00-overtone-internal.conf
+```
+
+Профили:
+
+- `bastion` — local forwarding и точный `PermitOpen`;
+- `locked` — HAProxy/manager, forwarding полностью запрещён;
+- `worker` — только remote forwarding и точный `PermitListen`.
+
+Playbook:
+
+- работает с `serial: 1`;
+- сохраняет существующий drop-in;
+- проверяет новый фрагмент;
+- выполняет полный `sshd -t`;
+- восстанавливает предыдущий файл при ошибке;
+- использует reload вместо restart.
+
+Первоначально только check mode и один host:
+
+```bash
+ansible-playbook -i inventories/production/hosts.yml \
+  playbooks/30-ssh-policy.yml \
+  --limit haproxy \
+  -e access_policy_confirmed=true \
+  --check --diff
+```
+
+Форматирование созданного вручную файла может отличаться от шаблона, поэтому
+Ansible способен показать diff даже при эквивалентной эффективной политике.
+
+## System baseline
+
+`10-system-baseline.yml` устанавливает базовые пакеты, time sync и unattended
+security updates. Automatic reboot отключён.
+
+```bash
+ansible-playbook -i inventories/production/hosts.yml \
+  playbooks/10-system-baseline.yml --limit haproxy --check --diff
+```
+
+Проверка unattended-upgrades на сервере:
 
 ```bash
 systemctl list-timers 'apt-daily*'
@@ -172,149 +223,32 @@ sudo unattended-upgrade --dry-run --debug
 sudo journalctl -u unattended-upgrades --since today
 ```
 
-Swarm-узлы при необходимости перезагружаются вручную и строго по одному.
+## Docker, Swarm и HAProxy
 
-## 5. SSH hardening внутренних серверов
+Эти этапы пока сохранены отдельно:
 
-Bastion исключён из `30-ssh-hardening.yml`. Перед каждым узлом сохраните одну
-рабочую SSH-сессию и проверьте второй вход под соответствующим `overtone_*`
-через bastion.
+```text
+40-docker.yml
+50-swarm.yml
+60-haproxy.yml
+```
 
-Проверка без применения:
+Docker repository и установка разделены tags:
 
 ```bash
 ansible-playbook -i inventories/production/hosts.yml \
-  playbooks/30-ssh-hardening.yml --limit haproxy \
-  -e ssh_hardening_confirmed=true --check --diff
-```
+  playbooks/40-docker.yml --limit manager-1 --tags docker_repo
 
-Применение только к одному серверу:
-
-```bash
 ansible-playbook -i inventories/production/hosts.yml \
-  playbooks/30-ssh-hardening.yml --limit haproxy \
-  -e ssh_hardening_confirmed=true --diff
+  playbooks/40-docker.yml --limit manager-1 --tags docker_install
 ```
 
-Playbook сначала выполняет `sshd -t`, затем делает reload, а не restart. После
-этого откройте новую сессию. Повторяйте по одному серверу.
+Перед `docker_install` необходимо записать одну точную доступную версию Docker в
+`docker_ce_version`. Членство в группе `docker` фактически предоставляет
+root-права.
 
-Откат через консоль провайдера:
+Swarm join token считывается только в память Ansible, скрыт через `no_log` и не
+записывается в inventory или файлы.
 
-```bash
-sudo mv /etc/ssh/sshd_config.d/00-overtone-hardening.conf \
-  /etc/ssh/sshd_config.d/00-overtone-hardening.conf.disabled
-sudo sshd -t
-sudo systemctl restart ssh
-```
-
-Консоль провайдера должна оставаться доступной на всём этапе.
-
-## 6. Firewall/security groups провайдера
-
-Firewall провайдера является основным внешним барьером. UFW не используется как
-единственная защита: опубликованные Docker-порты могут обходить его правила.
-
-Нужны следующие правила:
-
-- bastion: публичный TCP 22 только с вашего публичного IP `/32`;
-- HAProxy: публичные TCP 80/443 от клиентов;
-- внутренние четыре VPS: TCP 22 только с приватного IP bastion;
-- между тремя Swarm-узлами: TCP 2377, TCP/UDP 7946, UDP 4789 и IP protocol 50;
-- от HAProxy к `worker-1` и `worker-2`: приватные TCP 80/443;
-- исходящий DNS/HTTP/HTTPS для пакетов и обновлений.
-
-Публичный SSH внутренних серверов закрывается только после bootstrap,
-production ping и SSH hardening. Меняйте правила по одному серверу и каждый раз
-проверяйте вход через bastion.
-
-## 7. Docker
-
-Сначала настраивается официальный репозиторий без установки Docker:
-
-```bash
-ansible-playbook -i inventories/production/hosts.yml playbooks/40-docker.yml \
-  --limit manager-1 --tags docker_repo --check --diff
-ansible-playbook -i inventories/production/hosts.yml playbooks/40-docker.yml \
-  --limit manager-1 --tags docker_repo --diff
-```
-
-На `manager-1` посмотрите доступные версии:
-
-```bash
-apt-cache madison docker-ce
-```
-
-Скопируйте одну точную строку версии в `docker_ce_version`, затем настройте
-репозиторий на workers и установите эту же версию по одному узлу:
-
-```bash
-ansible-playbook -i inventories/production/hosts.yml playbooks/40-docker.yml \
-  --tags docker_repo --diff
-ansible-playbook -i inventories/production/hosts.yml playbooks/40-docker.yml \
-  --limit manager-1 --tags docker_install --check --diff
-ansible-playbook -i inventories/production/hosts.yml playbooks/40-docker.yml \
-  --limit manager-1 --tags docker_install --diff
-```
-
-Повторите `docker_install` для каждого worker. Членство `overtone` в группе
-`docker` фактически даёт root-права. Это сделано явно для ручного
-администрирования; после изменения группы нужна новая SSH-сессия.
-
-## 8. Docker Swarm
-
-Playbook инициализирует manager на приватном адресе, получает worker join token
-только в памяти Ansible и присоединяет workers по одному. Токен скрыт через
-`no_log` и не записывается в inventory.
-
-```bash
-ansible-playbook -i inventories/production/hosts.yml playbooks/50-swarm.yml \
-  --check --diff
-ansible-playbook -i inventories/production/hosts.yml playbooks/50-swarm.yml \
-  --diff
-```
-
-Проверка:
-
-```bash
-ssh overtone-manager-1 docker node ls
-```
-
-Если внутреннего SSH alias ещё нет, выполните команду с Mac через `ssh -J`:
-
-```bash
-ssh -J overtone-bastion \
-  -i ~/.ssh/overtone-infra/keys/overtone-production \
-  overtone_manager-1@CHANGE_ME_MANAGER_1_PRIVATE_IP docker node ls
-```
-
-## 9. HAProxy
-
-Конфигурация проксирует TCP 80/443 на приватные адреса обоих workers. TLS здесь
-не завершается. Пока на workers ничего не слушает, HAProxy будет запущен, но
-backend health checks будут показывать `DOWN` — это ожидаемо.
-
-На чистом сервере полноценный `--check` может остановиться на проверке конфига,
-потому что бинарник HAProxy ещё не установлен. Поэтому первый реальный запуск
-всё равно ограничивается единственным сервером:
-
-```bash
-ansible-playbook -i inventories/production/hosts.yml playbooks/60-haproxy.yml \
-  --limit haproxy --diff
-```
-
-Проверка:
-
-```bash
-sudo haproxy -c -f /etc/haproxy/haproxy.cfg
-systemctl status haproxy --no-pager
-```
-
-## 10. Итоговая read-only проверка
-
-```bash
-ansible-playbook -i inventories/production/hosts.yml playbooks/90-verify.yml
-```
-
-Перед любым реальным запуском всегда проверяйте `--limit`, выбранный inventory и
-список hosts в выводе Ansible.
+HAProxy настроен как TCP-прокси 80/443 без TLS termination. Пока на workers нет
+сервисов на этих портах, backend health checks ожидаемо будут показывать `DOWN`.

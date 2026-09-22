@@ -1,0 +1,3 @@
+---
+ssh_policy_profile: bastion
+ssh_policy_dropin_path: /etc/ssh/sshd_config.d/00-overtone-bastion.conf

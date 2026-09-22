@@ -21,3 +21,31 @@
     name: "{{ time_sync_service }}"
     enabled: true
     state: started
+
+- name: Install unattended-upgrades
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+  when: unattended_upgrades_enabled | bool
+
+- name: Enable automatic security updates without automatic reboot
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/52overtone-unattended-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      Unattended-Upgrade::Automatic-Reboot "{{ unattended_upgrades_automatic_reboot | bool | ternary('true', 'false') }}";
+  when: unattended_upgrades_enabled | bool
+
+- name: Enable APT security update timers
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+  when: unattended_upgrades_enabled | bool

@@ -1,0 +1,87 @@
+---
+- name: Validate the selected SSH policy profile
+  ansible.builtin.assert:
+    that:
+      - ssh_policy_profile in ['bastion', 'locked', 'worker']
+      - ssh_policy_dropin_path | length > 0
+      - ssh_allowed_users | length > 0
+      - ssh_allowed_users | select('search', 'CHANGE_ME') | list | length == 0
+    fail_msg: Fill the SSH policy variables before managing sshd.
+
+- name: Validate bastion PermitOpen destinations
+  ansible.builtin.assert:
+    that:
+      - groups['internal'] | length == 4
+      - hostvars[item].private_ip is defined
+      - "'CHANGE_ME' not in hostvars[item].private_ip"
+    fail_msg: Every internal host needs a real private_ip for bastion PermitOpen.
+  loop: "{{ groups['internal'] }}"
+  when: ssh_policy_profile == 'bastion'
+
+- name: Validate worker reverse tunnel listeners
+  ansible.builtin.assert:
+    that:
+      - ssh_permit_listen | length > 0
+      - ssh_permit_listen | select('search', 'CHANGE_ME') | list | length == 0
+    fail_msg: Configure at least one explicit loopback PermitListen endpoint.
+  when: ssh_policy_profile == 'worker'
+
+- name: Inspect the current managed SSH drop-in
+  ansible.builtin.stat:
+    path: "{{ ssh_policy_dropin_path }}"
+  register: ssh_policy_existing_file
+
+- name: Read the current managed SSH drop-in for rollback
+  ansible.builtin.slurp:
+    src: "{{ ssh_policy_dropin_path }}"
+  register: ssh_policy_previous_content
+  when: ssh_policy_existing_file.stat.exists
+
+- name: Install and validate the role-specific SSH policy
+  block:
+    - name: Render the SSH policy drop-in
+      ansible.builtin.template:
+        src: "{{ ssh_policy_profile }}.conf.j2"
+        dest: "{{ ssh_policy_dropin_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+        validate: /usr/sbin/sshd -t -f %s
+      register: ssh_policy_result
+
+    - name: Validate the complete SSH configuration
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+
+    - name: Schedule SSH reload after successful validation
+      ansible.builtin.debug:
+        msg: The complete SSH configuration is valid and can be reloaded.
+      changed_when: ssh_policy_result.changed
+      notify: Reload SSH
+
+  rescue:
+    - name: Restore the previous SSH policy file
+      ansible.builtin.copy:
+        dest: "{{ ssh_policy_dropin_path }}"
+        content: "{{ ssh_policy_previous_content.content | b64decode }}"
+        owner: root
+        group: root
+        mode: "0644"
+      when: ssh_policy_existing_file.stat.exists
+
+    - name: Remove a newly created invalid SSH policy file
+      ansible.builtin.file:
+        path: "{{ ssh_policy_dropin_path }}"
+        state: absent
+      when: not ssh_policy_existing_file.stat.exists
+
+    - name: Verify the restored SSH configuration
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+
+    - name: Stop after restoring SSH policy
+      ansible.builtin.fail:
+        msg: >-
+          The rendered SSH policy was invalid. The previous file was restored
+          and sshd was not reloaded.

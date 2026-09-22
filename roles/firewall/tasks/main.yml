@@ -1,0 +1,131 @@
+---
+- name: Validate firewall platform and network interfaces
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == "Debian"
+      - firewall_public_interface | length > 0
+      - firewall_private_interface | length > 0
+    fail_msg: This firewall role currently supports the Debian/Ubuntu UFW layout.
+
+- name: Validate private inventory addresses
+  ansible.builtin.assert:
+    that:
+      - private_ip is defined
+      - "'CHANGE_ME' not in private_ip"
+      - hostvars['bastion'].private_ip is defined
+      - "'CHANGE_ME' not in hostvars['bastion'].private_ip"
+    fail_msg: Fill every private_ip before managing UFW.
+
+- name: Validate the bastion source CIDR
+  ansible.builtin.assert:
+    that:
+      - firewall_admin_public_cidr is defined
+      - "'CHANGE_ME' not in firewall_admin_public_cidr"
+      - firewall_admin_public_cidr is match('^[0-9.]+/32$')
+    fail_msg: Set firewall_admin_public_cidr to your public IPv4 address with /32.
+  when: inventory_hostname in groups['bastion_hosts']
+
+- name: Install UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Allow public SSH to bastion only from the administrator CIDR
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: "{{ firewall_public_interface }}"
+    from_ip: "{{ firewall_admin_public_cidr }}"
+    to_port: "22"
+    proto: tcp
+    comment: SSH from administrator
+  when: inventory_hostname in groups['bastion_hosts']
+
+- name: Allow internal SSH only from bastion
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: "{{ firewall_private_interface }}"
+    from_ip: "{{ hostvars['bastion'].private_ip }}"
+    to_ip: "{{ private_ip }}"
+    to_port: "22"
+    proto: tcp
+    comment: SSH from bastion
+  when: inventory_hostname in groups['internal']
+
+- name: Allow public HTTP and HTTPS to HAProxy
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: "{{ firewall_public_interface }}"
+    to_port: "{{ item.port }}"
+    proto: tcp
+    comment: "{{ item.comment }}"
+  loop:
+    - port: "80"
+      comment: Public HTTP
+    - port: "443"
+      comment: Public HTTPS
+  when: inventory_hostname in groups['haproxy_hosts']
+
+- name: Allow HAProxy to reach worker web ports over the private network
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: "{{ firewall_private_interface }}"
+    from_ip: "{{ hostvars[groups['haproxy_hosts'][0]].private_ip }}"
+    to_ip: "{{ private_ip }}"
+    to_port: "{{ item.port }}"
+    proto: tcp
+    comment: "{{ item.comment }}"
+  loop:
+    - port: "80"
+      comment: HTTP from HAProxy
+    - port: "443"
+      comment: HTTPS from HAProxy
+  when: inventory_hostname in groups['swarm_workers']
+
+- name: Allow workers to reach the Swarm manager control plane
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: "{{ firewall_private_interface }}"
+    from_ip: "{{ hostvars[item].private_ip }}"
+    to_ip: "{{ private_ip }}"
+    to_port: "2377"
+    proto: tcp
+    comment: Swarm management
+  loop: "{{ groups['swarm_workers'] }}"
+  when: inventory_hostname in groups['swarm_managers']
+
+- name: Allow Swarm node traffic from every other Swarm node
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: "{{ firewall_private_interface }}"
+    from_ip: "{{ hostvars[item.0].private_ip }}"
+    to_ip: "{{ private_ip }}"
+    to_port: "{{ item.1.port | default(omit) }}"
+    proto: "{{ item.1.protocol }}"
+    comment: "{{ item.1.comment }}"
+  loop: >-
+    {{ (groups['swarm'] | difference([inventory_hostname])) |
+       product(firewall_swarm_common_rules) | list }}
+  when: inventory_hostname in groups['swarm']
+
+- name: Set the default incoming policy
+  community.general.ufw:
+    direction: incoming
+    default: "{{ firewall_default_incoming }}"
+
+- name: Set the default outgoing policy
+  community.general.ufw:
+    direction: outgoing
+    default: "{{ firewall_default_outgoing }}"
+
+- name: Enable UFW after all allow rules are present
+  community.general.ufw:
+    state: enabled
+  when: firewall_enable | bool

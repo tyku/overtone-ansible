@@ -1,0 +1,3 @@
+---
+ssh_policy_profile: locked
+ssh_policy_dropin_path: /etc/ssh/sshd_config.d/00-overtone-internal.conf

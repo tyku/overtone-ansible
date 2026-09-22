@@ -1,0 +1,15 @@
+# Managed by Ansible: restricted SSH gateway policy.
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+
+AllowTcpForwarding local
+DisableForwarding no
+AllowAgentForwarding no
+X11Forwarding no
+PermitTunnel no
+GatewayPorts no
+PermitOpen{% for host in groups['internal'] %} {{ hostvars[host].private_ip }}:22{% endfor %}
+
+AllowUsers {{ ssh_allowed_users | join(' ') }}

@@ -1,0 +1,19 @@
+---
+firewall_public_interface: "{{ public_interface }}"
+firewall_private_interface: "{{ private_interface }}"
+firewall_default_incoming: deny
+firewall_default_outgoing: allow
+firewall_enable: true
+
+firewall_swarm_common_rules:
+  - protocol: tcp
+    port: "7946"
+    comment: Swarm node TCP
+  - protocol: udp
+    port: "7946"
+    comment: Swarm node UDP
+  - protocol: udp
+    port: "4789"
+    comment: Swarm overlay
+  - protocol: esp
+    comment: Swarm encrypted overlay

@@ -16,3 +16,9 @@ common_packages:
   - vim
 
 time_sync_service: systemd-timesyncd
+
+public_interface: eth0
+private_interface: eth1
+
+unattended_upgrades_enabled: true
+unattended_upgrades_automatic_reboot: false

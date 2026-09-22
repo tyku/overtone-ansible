@@ -12,3 +12,6 @@ common_packages:
   - vim
 
 time_sync_service: systemd-timesyncd
+
+unattended_upgrades_enabled: true
+unattended_upgrades_automatic_reboot: false
