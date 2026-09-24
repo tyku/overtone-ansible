@@ -1,0 +1,31 @@
+---
+- name: Manage present deploy identities on this host
+  ansible.builtin.include_tasks: present.yml
+  loop: "{{ deploy_access_users }}"
+  loop_control:
+    loop_var: deploy_account
+    label: "{{ deploy_account.name }}"
+  when:
+    - (deploy_account.state | default('present')) == 'present'
+    - >-
+      inventory_hostname in groups['bastion_hosts'] or
+      inventory_hostname == deploy_account.target_host
+
+- name: Remove obsolete deploy sudo policy
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ item.name }}"
+    state: absent
+  loop: "{{ deploy_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: (item.state | default('present')) == 'absent'
+
+- name: Remove obsolete deploy identities without touching deployment files
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    state: absent
+    remove: true
+  loop: "{{ deploy_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: (item.state | default('present')) == 'absent'

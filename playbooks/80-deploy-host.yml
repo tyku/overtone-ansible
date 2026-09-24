@@ -1,0 +1,24 @@
+---
+- name: Prepare restricted CI transit and manager deployment access
+  hosts: bastion_hosts:swarm_managers
+  become: true
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+
+  pre_tasks:
+    - name: Require explicit confirmation before changing CI deploy access
+      ansible.builtin.assert:
+        that:
+          - access_policy_confirmed | default(false) | bool
+        fail_msg: >-
+          This playbook creates a root-equivalent Docker deploy identity and
+          changes AllowUsers. Keep an existing session and provider console
+          open, then rerun with -e access_policy_confirmed=true and --limit.
+
+  roles:
+    - role: access_model
+      vars:
+        access_model_required_kind: deploy
+    - role: ssh_policy
+    - role: deploy_access

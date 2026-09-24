@@ -1,0 +1,20 @@
+---
+- name: Validate the requested Swarm operation
+  ansible.builtin.assert:
+    that:
+      - swarm_cluster_operation in ['manager', 'worker', 'verify']
+      - groups['swarm_managers'] | length == 1
+      - groups['swarm_workers'] | length == 2
+    fail_msg: This role requires exactly one manager and two workers.
+
+- name: Run manager tasks
+  ansible.builtin.include_tasks: manager.yml
+  when: swarm_cluster_operation == 'manager'
+
+- name: Run worker tasks
+  ansible.builtin.include_tasks: worker.yml
+  when: swarm_cluster_operation == 'worker'
+
+- name: Run cluster verification tasks
+  ansible.builtin.include_tasks: verify.yml
+  when: swarm_cluster_operation == 'verify'

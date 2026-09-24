@@ -1,0 +1,104 @@
+---
+- name: Read-only verification of the complete Swarm
+  hosts: swarm_managers
+  become: true
+  gather_facts: false
+
+  roles:
+    - role: swarm_cluster
+      vars:
+        swarm_cluster_operation: verify
+
+- name: Read-only verification of HAProxy and optional backends
+  hosts: haproxy_hosts
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Validate installed HAProxy configuration
+      ansible.builtin.command: /usr/sbin/haproxy -c -f /etc/haproxy/haproxy.cfg
+      changed_when: false
+
+    - name: Collect HAProxy service facts
+      ansible.builtin.service_facts:
+
+    - name: Assert HAProxy service state
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['haproxy.service'].state == 'running'
+
+    - name: Probe worker HTTP and HTTPS from HAProxy
+      ansible.builtin.wait_for:
+        host: "{{ hostvars[item.0].private_ip }}"
+        port: "{{ item.1 }}"
+        connect_timeout: 2
+        timeout: 5
+        state: started
+      loop: >-
+        {{ haproxy_backend_hosts |
+           product([haproxy_backend_http_port, haproxy_backend_https_port]) |
+           list }}
+      when: haproxy_require_healthy_backends | bool
+
+- name: Read-only verification of optional worker dependencies
+  hosts: swarm_workers
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Probe external PostgreSQL TCP endpoint
+      ansible.builtin.wait_for:
+        host: "{{ postgresql_probe_host }}"
+        port: "{{ postgresql_probe_port }}"
+        connect_timeout: 3
+        timeout: 10
+        state: started
+      when: postgresql_probe_enabled | bool
+
+    - name: Probe PostgreSQL TLS negotiation without credentials
+      ansible.builtin.command:
+        argv:
+          - timeout
+          - "10"
+          - openssl
+          - s_client
+          - -starttls
+          - postgres
+          - -connect
+          - "{{ postgresql_probe_host }}:{{ postgresql_probe_port }}"
+          - -brief
+      changed_when: false
+      when:
+        - postgresql_probe_enabled | bool
+        - postgresql_tls_probe_enabled | bool
+
+    - name: Probe external S3 DNS, TCP and TLS without credentials
+      ansible.builtin.uri:
+        url: "{{ s3_probe_url }}"
+        method: HEAD
+        validate_certs: true
+        return_content: false
+        status_code:
+          - 200
+          - 301
+          - 302
+          - 307
+          - 400
+          - 401
+          - 403
+          - 404
+      when: s3_probe_enabled | bool
+
+    - name: Collect worker service facts
+      ansible.builtin.service_facts:
+      when: inference_tunnel_networking_enabled | default(false) | bool
+
+    - name: Assert enabled inference proxy state
+      ansible.builtin.assert:
+        that:
+          - >-
+            ansible_facts.services[
+              inference_tunnel_proxy_service_name |
+              default('overtone-inference-tunnel-proxy.service')
+            ].state == 'running'
+      when: inference_tunnel_networking_enabled | default(false) | bool

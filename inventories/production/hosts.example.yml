@@ -7,6 +7,11 @@ all:
     # 30-ssh-policy.yml use these lists to preserve AllowUsers correctly.
     team_access_users: []
     tunnel_access_users: []
+    deploy_access_users: []
+
+    # After initializing or verifying the production manager, record its
+    # non-secret cluster identity here to prevent accidental foreign adoption.
+    swarm_expected_id: ""
 
     # Example administrator:
     # team_access_users:
@@ -21,6 +26,15 @@ all:
     #       - worker-2
     #     state: present
 
+    # Example GitHub Actions deploy identity. Store only the public key here.
+    # The private key belongs in the protected production environment.
+    # deploy_access_users:
+    #   - name: overtone_deploy
+    #     public_keys:
+    #       - ssh-ed25519 CHANGE_ME_DEPLOY_PUBLIC_KEY github-actions
+    #     target_host: manager-1
+    #     state: present
+
     # Example tunnel identity. The same public key is installed on bastion
     # and both selected workers, with different key restrictions on each hop.
     # tunnel_access_users:
@@ -31,7 +45,7 @@ all:
     #       - worker-1
     #       - worker-2
     #     permit_listen:
-    #       - 127.0.0.1:19000
+    #       - 127.0.0.1:50052
     #     state: present
 
   children:

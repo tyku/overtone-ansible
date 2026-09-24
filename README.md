@@ -32,11 +32,22 @@ Ansible-описание пяти существующих VPS:
 | `20-firewall.yml` | Воспроизводит role-specific UFW policy. Требует явного подтверждения. |
 | `30-ssh-policy.yml` | Воспроизводит три SSH-профиля с проверкой и rollback. Требует явного подтверждения. |
 | `40-docker.yml` | Устанавливает зафиксированную версию Docker на Swarm-узлы. |
+| `45-docker-readiness.yml` | Проверяет Docker version, systemd, отсутствие public API и доступ к Docker Hub. |
 | `50-swarm.yml` | Создаёт manager и присоединяет workers через приватную сеть. |
+| `55-tunnel-networking.yml` | Опциональный private proxy от существующего loopback tunnel к контейнерам; выключен по умолчанию. |
 | `60-haproxy.yml` | Устанавливает HAProxy и проксирует TCP 80/443 на workers. |
 | `70-team-access.yml` | Управляет полноправными администраторами: ключи, sudo и AllowUsers. |
-| `71-tunnel-accounts.yml` | Создаёт ограниченные tunnel identities на bastion и выбранном worker. |
+| `71-tunnel-accounts.yml` | Создаёт ограниченную tunnel identity на bastion и выбранных workers. |
+| `80-deploy-host.yml` | Создаёт CI deploy identity: transit через bastion и Docker-доступ на manager. |
 | `90-audit.yml` | Read-only аудит эффективных SSH/UFW-настроек. |
+| `91-infrastructure-readiness.yml` | Read-only проверки Swarm, HAProxy и опциональных внешних endpoint’ов. |
+| `site.yml` | Последовательность инфраструктурных этапов после bootstrap, включая deploy identity. |
+
+Расширенные инструкции:
+
+- [production operations](docs/OPERATIONS.md);
+- [container-to-inference tunnel networking](docs/TUNNEL-NETWORKING.md);
+- [CI/CD boundary and secrets](docs/CI-CD.md).
 
 ## Управление дополнительным доступом
 
@@ -97,13 +108,25 @@ ansible-playbook -i inventories/production/hosts.yml \
 ssh -i ~/.ssh/overtone-infra/keys/CHANGE_ME_TUNNEL_KEY \
   -o IdentitiesOnly=yes \
   -J overtone_tunnel@BASTION_PUBLIC_IP \
-  -N -R 127.0.0.1:19000:127.0.0.1:9000 \
+  -N -R 127.0.0.1:50052:127.0.0.1:50052 \
   overtone_tunnel@WORKER_PRIVATE_IP
 ```
 
 Для нового Unix-пользователя `--check` не может проверить запись его
 `authorized_keys`, потому что домашней директории ещё нет. Реальный запуск
 создаёт пользователя первым и затем устанавливает ключ.
+
+`80-deploy-host.yml` создаёт `overtone_deploy` на двух хопах:
+
+- на bastion ключ разрешает только SSH-транзит к manager;
+- на manager пользователь не имеет sudo, но входит в группу `docker` и поэтому
+  фактически обладает root-equivalent доступом;
+- `/opt/overtone-infra` принадлежит deploy-пользователю;
+- пароль, PTY, agent/X11 forwarding и произвольный forwarding запрещены.
+
+Публичный ключ и `target_host: manager-1` задаются в игнорируемом
+`inventories/production/hosts.yml` по примеру из `hosts.example.yml`. Подробный
+порядок безопасного применения описан в [production operations](docs/OPERATIONS.md).
 
 ## Зафиксированная модель доступа
 
@@ -131,7 +154,7 @@ ssh -i ~/.ssh/overtone-infra/keys/CHANGE_ME_TUNNEL_KEY \
 - root/password/agent/X11/tunnel forwarding запрещены;
 - разрешён только `remote` forwarding (`ssh -R`);
 - `GatewayPorts no`;
-- `PermitListen` ограничен `127.0.0.1:19000–19002`.
+- `PermitListen` ограничен `127.0.0.1:50052–50054`.
 
 ### Swarm private network
 

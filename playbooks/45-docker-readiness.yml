@@ -1,0 +1,85 @@
+---
+- name: Audit Docker Engine readiness on every Swarm node
+  hosts: swarm
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Read Docker server version
+      ansible.builtin.command:
+        argv:
+          - docker
+          - version
+          - --format
+          - "{{ '{{.Server.Version}}' }}"
+      register: docker_version_result
+      changed_when: false
+
+    - name: Store Docker server version for cross-node comparison
+      ansible.builtin.set_fact:
+        docker_engine_server_version: "{{ docker_version_result.stdout }}"
+
+    - name: Collect Docker service facts
+      ansible.builtin.service_facts:
+
+    - name: Read listening TCP sockets
+      ansible.builtin.command: ss -H -lnt
+      register: docker_listeners
+      changed_when: false
+
+    - name: Assert Docker service and API exposure
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['docker.service'].state == 'running'
+          - "'0.0.0.0:2375' not in docker_listeners.stdout"
+          - "'[::]:2375' not in docker_listeners.stdout"
+          - "'0.0.0.0:2376' not in docker_listeners.stdout"
+          - "'[::]:2376' not in docker_listeners.stdout"
+        fail_msg: Docker is inactive or exposes a public TCP API listener.
+
+    - name: Verify Docker Hub authentication endpoint is reachable
+      ansible.builtin.uri:
+        url: https://auth.docker.io/token
+        method: GET
+        status_code:
+          - 200
+          - 400
+        return_content: false
+      changed_when: false
+
+    - name: Verify Docker Hub registry endpoint is reachable
+      ansible.builtin.uri:
+        url: https://registry-1.docker.io/v2/
+        method: GET
+        status_code:
+          - 200
+          - 401
+        return_content: false
+      changed_when: false
+
+    - name: Require an immutable image reference for an enabled pull probe
+      ansible.builtin.assert:
+        that:
+          - docker_pull_probe_image | length > 0
+          - not docker_pull_probe_image.endswith(':latest')
+          - >-
+            '@sha256:' in docker_pull_probe_image or
+            (':' in docker_pull_probe_image.rsplit('/', 1)[-1])
+        fail_msg: Configure a versioned tag or sha256 digest, never latest.
+      when: docker_pull_probe_enabled | bool
+
+    - name: Pull the explicitly configured immutable probe image
+      community.docker.docker_image:
+        name: "{{ docker_pull_probe_image }}"
+        source: pull
+      when: docker_pull_probe_enabled | bool
+
+    - name: Verify all Swarm nodes run the same Docker version
+      ansible.builtin.assert:
+        that:
+          - >-
+            groups['swarm'] |
+            map('extract', hostvars, 'docker_engine_server_version') |
+            unique | list | length == 1
+        fail_msg: Swarm nodes run different Docker Engine versions.
+      run_once: true

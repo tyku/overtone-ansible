@@ -22,3 +22,16 @@ private_interface: eth1
 
 unattended_upgrades_enabled: true
 unattended_upgrades_automatic_reboot: false
+
+# Optional additive access. Keep empty until the actual private/VPN CIDRs are known.
+administrative_private_cidrs: []
+kuma_firewall_enabled: false
+kuma_port: 3001
+
+# Optional external-service connectivity checks in 91-infrastructure-readiness.yml.
+postgresql_probe_enabled: false
+postgresql_probe_host: ""
+postgresql_probe_port: 5432
+postgresql_tls_probe_enabled: false
+s3_probe_enabled: false
+s3_probe_url: ""

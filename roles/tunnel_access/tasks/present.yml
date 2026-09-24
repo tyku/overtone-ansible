@@ -20,16 +20,29 @@
     path: "/etc/sudoers.d/{{ tunnel_account.name }}"
     state: absent
 
+- name: Start the restricted authorized-key option list
+  ansible.builtin.set_fact:
+    tunnel_authorized_key_options: restrict,port-forwarding
+
+- name: Restrict bastion transit to the selected worker SSH ports
+  ansible.builtin.set_fact:
+    tunnel_authorized_key_options: >-
+      {{ tunnel_authorized_key_options }},permitopen="{{ hostvars[item].private_ip }}:22"
+  loop: "{{ tunnel_account.target_hosts }}"
+  when: inventory_hostname in groups['bastion_hosts']
+
+- name: Restrict worker reverse listeners to the selected loopback ports
+  ansible.builtin.set_fact:
+    tunnel_authorized_key_options: >-
+      {{ tunnel_authorized_key_options }},permitlisten="{{ item }}"
+  loop: "{{ tunnel_account.permit_listen }}"
+  when: inventory_hostname in groups['swarm_workers']
+
 - name: Install the hop-specific restricted public keys
   ansible.posix.authorized_key:
     user: "{{ tunnel_account.name }}"
     key: "{{ tunnel_account.public_keys | join('\n') }}"
-    key_options: >-
-      {%- if inventory_hostname in groups['bastion_hosts'] -%}
-      restrict,port-forwarding{% for target_host in tunnel_account.target_hosts %},permitopen="{{ hostvars[target_host].private_ip }}:22"{% endfor %}
-      {%- else -%}
-      restrict,port-forwarding{% for endpoint in tunnel_account.permit_listen %},permitlisten="{{ endpoint }}"{% endfor %}
-      {%- endif -%}
+    key_options: "{{ tunnel_authorized_key_options }}"
     state: present
     exclusive: true
     manage_dir: true

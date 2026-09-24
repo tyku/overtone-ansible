@@ -1,0 +1,116 @@
+---
+- name: Explain why inference tunnel networking is unchanged
+  ansible.builtin.debug:
+    msg: >-
+      inference_tunnel_networking_enabled is false. The existing SSH listener,
+      firewall and Docker networking are unchanged.
+  when: not inference_tunnel_networking_enabled | bool
+
+- name: Configure container access to the existing tunnel
+  when: inference_tunnel_networking_enabled | bool
+  block:
+    - name: Validate explicit tunnel networking inputs
+      ansible.builtin.assert:
+        that:
+          - inference_tunnel_ssh_listener_address in ['127.0.0.1', '::1']
+          - inference_tunnel_ssh_listener_port | int > 0
+          - inference_tunnel_ssh_listener_port | int <= 65535
+          - inference_tunnel_endpoint_address == private_ip
+          - inference_tunnel_endpoint_address not in ['0.0.0.0', '::', '']
+          - inference_tunnel_endpoint_port | int > 0
+          - inference_tunnel_endpoint_port | int <= 65535
+          - >-
+            not inference_tunnel_manage_ufw | bool or
+            inference_tunnel_allowed_sources | length > 0
+        fail_msg: >-
+          Configure the observed loopback listener, a private bind address,
+          explicit ports and explicit firewall source CIDRs before enabling.
+
+    - name: Require a versioned image when the container probe is enabled
+      ansible.builtin.assert:
+        that:
+          - inference_tunnel_probe_image | length > 0
+          - not inference_tunnel_probe_image.endswith(':latest')
+          - >-
+            '@sha256:' in inference_tunnel_probe_image or
+            (':' in inference_tunnel_probe_image.rsplit('/', 1)[-1])
+        fail_msg: Configure a versioned diagnostic image or digest, never latest.
+      when: inference_tunnel_container_probe_enabled | bool
+
+    - name: Verify the existing SSH tunnel listener is active
+      ansible.builtin.wait_for:
+        host: "{{ inference_tunnel_ssh_listener_address }}"
+        port: "{{ inference_tunnel_ssh_listener_port }}"
+        state: started
+        connect_timeout: 2
+        timeout: 3
+        msg: >-
+          The existing SSH tunnel listener is inactive. No SSH configuration
+          was changed; start the external tunnel/local inference machine first.
+
+    - name: Install the local TCP proxy package
+      ansible.builtin.apt:
+        name: socat
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install the private tunnel proxy unit
+      ansible.builtin.template:
+        src: overtone-inference-tunnel-proxy.service.j2
+        dest: "/etc/systemd/system/{{ inference_tunnel_proxy_service_name }}"
+        owner: root
+        group: root
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart inference tunnel proxy
+
+    - name: Flush proxy unit handlers before probing
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start the private tunnel proxy
+      ansible.builtin.systemd_service:
+        name: "{{ inference_tunnel_proxy_service_name }}"
+        enabled: true
+        state: started
+
+    - name: Allow only explicit sources to the private tunnel endpoint
+      community.general.ufw:
+        rule: allow
+        direction: in
+        interface: >-
+          {{ inference_tunnel_firewall_interface
+             if inference_tunnel_firewall_interface | length > 0 else omit }}
+        from_ip: "{{ item }}"
+        to_ip: "{{ inference_tunnel_endpoint_address }}"
+        to_port: "{{ inference_tunnel_endpoint_port | string }}"
+        proto: tcp
+        comment: Container access to inference tunnel
+      loop: "{{ inference_tunnel_allowed_sources }}"
+      when: inference_tunnel_manage_ufw | bool
+
+    - name: Verify the private proxy listener on the worker host
+      ansible.builtin.wait_for:
+        host: "{{ inference_tunnel_endpoint_address }}"
+        port: "{{ inference_tunnel_endpoint_port }}"
+        state: started
+        connect_timeout: 2
+        timeout: 5
+
+    - name: Probe the endpoint from a temporary Docker container
+      ansible.builtin.command:
+        argv:
+          - docker
+          - run
+          - --rm
+          - --network
+          - "{{ inference_tunnel_probe_network }}"
+          - "{{ inference_tunnel_probe_image }}"
+          - sh
+          - -ec
+          - >-
+            nc -z -w 5 {{ inference_tunnel_endpoint_address }}
+            {{ inference_tunnel_endpoint_port }}
+      changed_when: false
+      when: inference_tunnel_container_probe_enabled | bool

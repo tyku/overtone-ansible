@@ -1,0 +1,125 @@
+---
+- name: Validate the manager private address
+  ansible.builtin.assert:
+    that:
+      - private_ip is defined
+      - "'CHANGE_ME' not in private_ip"
+    fail_msg: Configure the manager private_ip before managing Swarm.
+
+- name: Inspect local Swarm state on the manager
+  ansible.builtin.command:
+    argv:
+      - docker
+      - info
+      - --format
+      - "{{ '{{json .Swarm}}' }}"
+  register: swarm_manager_info_raw
+  changed_when: false
+
+- name: Decode local manager Swarm state
+  ansible.builtin.set_fact:
+    swarm_manager_state: "{{ swarm_manager_info_raw.stdout | from_json }}"
+
+- name: Reject an unexpected local manager state
+  ansible.builtin.assert:
+    that:
+      - swarm_manager_state.LocalNodeState in ['inactive', 'active']
+      - >-
+        swarm_manager_state.LocalNodeState != 'active' or
+        swarm_manager_state.ControlAvailable | bool
+    fail_msg: >-
+      manager-1 is already attached as a worker or has a pending/error Swarm
+      state. This playbook will not leave, demote or recreate it automatically.
+
+- name: Require explicit confirmation before initializing a new Swarm
+  ansible.builtin.assert:
+    that:
+      - swarm_initialize_confirmed | bool
+    fail_msg: >-
+      Docker reports an inactive Swarm. Rerun with
+      -e swarm_initialize_confirmed=true only after verifying the private IP.
+  when: swarm_manager_state.LocalNodeState == 'inactive'
+
+- name: Initialize Swarm only when Docker reports it inactive
+  community.docker.docker_swarm:
+    state: present
+    advertise_addr: "{{ private_ip }}"
+    data_path_addr: "{{ private_ip }}"
+  when: swarm_manager_state.LocalNodeState == 'inactive'
+
+- name: Mark dependent Swarm operations as deferred in check mode
+  ansible.builtin.set_fact:
+    swarm_creation_deferred_in_check_mode: true
+  when:
+    - swarm_manager_state.LocalNodeState == 'inactive'
+    - ansible_check_mode
+
+- name: Read the manager Swarm ID
+  ansible.builtin.command:
+    argv:
+      - docker
+      - info
+      - --format
+      - "{{ '{{.Swarm.Cluster.ID}}' }}"
+  register: swarm_manager_id_raw
+  changed_when: false
+  when: not (swarm_creation_deferred_in_check_mode | default(false) | bool)
+
+- name: Refuse to adopt an unrecorded or different active Swarm
+  ansible.builtin.assert:
+    that:
+      - swarm_expected_id | length > 0
+      - swarm_manager_id_raw.stdout == swarm_expected_id
+    fail_msg: >-
+      This manager is already active, but swarm_expected_id is empty or does
+      not match. Record the inspected ID only after confirming this is the
+      intended production Swarm. No leave/recreate action was attempted.
+  when: swarm_manager_state.LocalNodeState == 'active'
+
+- name: Show the ID that must be recorded after first initialization
+  ansible.builtin.debug:
+    msg: >-
+      New Swarm ID is {{ swarm_manager_id_raw.stdout }}. Record it as
+      swarm_expected_id before the next run.
+  when:
+    - swarm_manager_state.LocalNodeState == 'inactive'
+    - not (swarm_creation_deferred_in_check_mode | default(false) | bool)
+
+- name: Explain new-cluster check-mode limits
+  ansible.builtin.debug:
+    msg: >-
+      Manager initialization is only predicted in check mode. Worker joins,
+      cluster ID capture and node verification are deferred until a real run.
+  when: swarm_creation_deferred_in_check_mode | default(false) | bool
+
+- name: Verify the manager advertises its private address
+  ansible.builtin.command:
+    argv:
+      - docker
+      - info
+      - --format
+      - "{{ '{{.Swarm.NodeAddr}}' }}"
+  register: swarm_manager_node_addr
+  changed_when: false
+  when: not (swarm_creation_deferred_in_check_mode | default(false) | bool)
+
+- name: Assert the manager private advertise address
+  ansible.builtin.assert:
+    that:
+      - swarm_manager_node_addr.stdout == private_ip
+    fail_msg: >-
+      The manager is active with an unexpected advertise address. It will not
+      be modified automatically.
+  when: not (swarm_creation_deferred_in_check_mode | default(false) | bool)
+
+- name: Read the worker join token only into memory
+  community.docker.docker_swarm_info:
+  register: swarm_manager_facts
+  no_log: true
+  when: not (swarm_creation_deferred_in_check_mode | default(false) | bool)
+
+- name: Keep the worker token as an in-memory host fact
+  ansible.builtin.set_fact:
+    swarm_worker_join_token: "{{ swarm_manager_facts.swarm_facts.JoinTokens.Worker }}"
+  no_log: true
+  when: not (swarm_creation_deferred_in_check_mode | default(false) | bool)

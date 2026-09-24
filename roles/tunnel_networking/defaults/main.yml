@@ -1,0 +1,21 @@
+---
+# Disabled until the current listeners, routing and Docker source CIDRs have
+# been inspected on production. This role never creates an SSH tunnel.
+inference_tunnel_networking_enabled: false
+
+inference_tunnel_ssh_listener_address: 127.0.0.1
+inference_tunnel_ssh_listener_port: 0
+
+# The proxy must bind a private host address, never 0.0.0.0 or a public address.
+inference_tunnel_endpoint_address: "{{ private_ip | default('') }}"
+inference_tunnel_endpoint_port: 0
+
+inference_tunnel_manage_ufw: false
+inference_tunnel_allowed_sources: []
+inference_tunnel_firewall_interface: ""
+
+inference_tunnel_container_probe_enabled: false
+inference_tunnel_probe_image: ""
+inference_tunnel_probe_network: bridge
+
+inference_tunnel_proxy_service_name: overtone-inference-tunnel-proxy.service

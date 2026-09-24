@@ -4,6 +4,6 @@ ssh_policy_dropin_path: /etc/ssh/sshd_config.d/00-overtone-internal.conf
 
 # Reverse SSH tunnels are restricted to these loopback ports.
 ssh_permit_listen:
-  - 127.0.0.1:19000
-  - 127.0.0.1:19001
-  - 127.0.0.1:19002
+  - 127.0.0.1:50052
+  - 127.0.0.1:50053
+  - 127.0.0.1:50054

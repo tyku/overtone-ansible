@@ -2,11 +2,12 @@
 - name: Validate HAProxy backend inventory
   ansible.builtin.assert:
     that:
-      - groups['swarm_workers'] | length == 2
-      - hostvars[groups['swarm_workers'][0]].private_ip is defined
-      - hostvars[groups['swarm_workers'][1]].private_ip is defined
-      - "'CHANGE_ME' not in hostvars[groups['swarm_workers'][0]].private_ip"
-      - "'CHANGE_ME' not in hostvars[groups['swarm_workers'][1]].private_ip"
+      - haproxy_backend_hosts | length == 2
+      - hostvars[haproxy_backend_hosts[0]].private_ip is defined
+      - hostvars[haproxy_backend_hosts[1]].private_ip is defined
+      - "'CHANGE_ME' not in hostvars[haproxy_backend_hosts[0]].private_ip"
+      - "'CHANGE_ME' not in hostvars[haproxy_backend_hosts[1]].private_ip"
+      - not haproxy_send_proxy_protocol | bool
     fail_msg: Configure exactly two workers and their private_ip values.
 
 - name: Install HAProxy
@@ -32,3 +33,7 @@
     name: haproxy.service
     enabled: true
     state: started
+
+- name: Verify the installed HAProxy configuration
+  ansible.builtin.command: /usr/sbin/haproxy -c -f /etc/haproxy/haproxy.cfg
+  changed_when: false

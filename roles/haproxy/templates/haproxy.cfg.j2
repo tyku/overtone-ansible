@@ -24,8 +24,8 @@ frontend http_in
 
 backend workers_http
     balance roundrobin
-{% for worker in groups['swarm_workers'] %}
-    server {{ worker }} {{ hostvars[worker].private_ip }}:80 check
+{% for worker in haproxy_backend_hosts %}
+    server {{ worker }} {{ hostvars[worker].private_ip }}:{{ haproxy_backend_http_port }} check inter {{ haproxy_backend_check_interval }}
 {% endfor %}
 
 frontend https_in
@@ -34,6 +34,6 @@ frontend https_in
 
 backend workers_https
     balance roundrobin
-{% for worker in groups['swarm_workers'] %}
-    server {{ worker }} {{ hostvars[worker].private_ip }}:443 check
+{% for worker in haproxy_backend_hosts %}
+    server {{ worker }} {{ hostvars[worker].private_ip }}:{{ haproxy_backend_https_port }} check inter {{ haproxy_backend_check_interval }}
 {% endfor %}

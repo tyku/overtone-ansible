@@ -6,3 +6,11 @@ docker_ce_version: CHANGE_ME_DOCKER_CE_VERSION
 # Membership in the docker group is effectively root-equivalent access.
 docker_users:
   - "{{ overtone_admin_user }}"
+
+# Record this after the first initialization. An already-active manager is not
+# adopted unless its ID matches, which prevents accidental reuse of another Swarm.
+swarm_expected_id: ""
+
+# Optional immutable pull probe used by 45-docker-readiness.yml.
+docker_pull_probe_enabled: false
+docker_pull_probe_image: ""

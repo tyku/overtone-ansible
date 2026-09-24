@@ -1,3 +1,9 @@
 ---
 haproxy_http_port: 80
 haproxy_https_port: 443
+haproxy_backend_hosts: "{{ groups['swarm_workers'] }}"
+haproxy_backend_http_port: 80
+haproxy_backend_https_port: 443
+haproxy_backend_check_interval: 3s
+haproxy_send_proxy_protocol: false
+overtone_public_domain: example.invalid

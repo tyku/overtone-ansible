@@ -1,0 +1,23 @@
+---
+# Bootstrap remains separate because it uses provider credentials, password
+# authentication and inventories/bootstrap/hosts.yml.
+- name: Apply common system baseline
+  ansible.builtin.import_playbook: 10-system-baseline.yml
+- name: Apply host firewall policy
+  ansible.builtin.import_playbook: 20-firewall.yml
+- name: Apply SSH access policy
+  ansible.builtin.import_playbook: 30-ssh-policy.yml
+- name: Install pinned Docker Engine
+  ansible.builtin.import_playbook: 40-docker.yml
+- name: Check Docker readiness
+  ansible.builtin.import_playbook: 45-docker-readiness.yml
+- name: Create or validate Docker Swarm
+  ansible.builtin.import_playbook: 50-swarm.yml
+- name: Configure optional inference tunnel networking
+  ansible.builtin.import_playbook: 55-tunnel-networking.yml
+- name: Configure standalone HAProxy
+  ansible.builtin.import_playbook: 60-haproxy.yml
+- name: Prepare CI deployment access on bastion and manager
+  ansible.builtin.import_playbook: 80-deploy-host.yml
+- name: Run infrastructure readiness checks
+  ansible.builtin.import_playbook: 91-infrastructure-readiness.yml

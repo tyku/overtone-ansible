@@ -1,0 +1,4 @@
+---
+swarm_cluster_operation: verify
+swarm_expected_id: ""
+swarm_initialize_confirmed: false

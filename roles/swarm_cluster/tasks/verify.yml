@@ -1,0 +1,29 @@
+---
+- name: Inspect every expected Swarm node from the manager
+  ansible.builtin.command:
+    argv:
+      - docker
+      - node
+      - inspect
+      - "{{ item }}"
+      - --format
+      - "{{ '{{json .}}' }}"
+  loop: "{{ groups['swarm'] }}"
+  register: swarm_expected_nodes
+  changed_when: false
+  when: not (swarm_creation_deferred_in_check_mode | default(false) | bool)
+
+- name: Verify node readiness, availability and private address
+  ansible.builtin.assert:
+    that:
+      - (item.stdout | from_json).Status.State == 'ready'
+      - (item.stdout | from_json).Spec.Availability == 'active'
+      - (item.stdout | from_json).Status.Addr == hostvars[item.item].private_ip
+      - >-
+        item.item not in groups['swarm_managers'] or
+        ((item.stdout | from_json).ManagerStatus.Leader | default(false) | bool)
+    fail_msg: "Swarm node {{ item.item }} is not Ready/Active on its expected private address."
+  loop: "{{ swarm_expected_nodes.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not (swarm_creation_deferred_in_check_mode | default(false) | bool)

@@ -1,0 +1,103 @@
+---
+- name: Validate the worker private address
+  ansible.builtin.assert:
+    that:
+      - private_ip is defined
+      - "'CHANGE_ME' not in private_ip"
+    fail_msg: Configure the worker private_ip before managing Swarm.
+
+- name: Inspect local Swarm state on the worker
+  ansible.builtin.command:
+    argv:
+      - docker
+      - info
+      - --format
+      - "{{ '{{json .Swarm}}' }}"
+  register: swarm_worker_info_raw
+  changed_when: false
+
+- name: Decode local worker Swarm state
+  ansible.builtin.set_fact:
+    swarm_worker_state: "{{ swarm_worker_info_raw.stdout | from_json }}"
+
+- name: Reject an unexpected worker state or manager role
+  ansible.builtin.assert:
+    that:
+      - swarm_worker_state.LocalNodeState in ['inactive', 'active']
+      - >-
+        swarm_worker_state.LocalNodeState != 'active' or
+        not (swarm_worker_state.ControlAvailable | bool)
+    fail_msg: >-
+      This worker has a pending/error state or is already a manager. The
+      playbook will not leave, demote or recreate it automatically.
+
+- name: Ask the expected manager whether an active worker belongs to it
+  ansible.builtin.command:
+    argv:
+      - docker
+      - node
+      - inspect
+      - "{{ swarm_worker_state.NodeID }}"
+  delegate_to: "{{ groups['swarm_managers'][0] }}"
+  register: swarm_worker_membership
+  changed_when: false
+  failed_when: false
+  when: swarm_worker_state.LocalNodeState == 'active'
+
+- name: Refuse to move a worker from another Swarm
+  ansible.builtin.assert:
+    that:
+      - swarm_worker_membership.rc == 0
+    fail_msg: >-
+      This worker is active but its NodeID is unknown to manager-1. It likely
+      belongs to another Swarm; no leave or join action was attempted.
+  when: swarm_worker_state.LocalNodeState == 'active'
+
+- name: Join an inactive worker through the private network
+  community.docker.docker_swarm:
+    state: join
+    advertise_addr: "{{ private_ip }}"
+    data_path_addr: "{{ private_ip }}"
+    join_token: >-
+      {{ hostvars[groups['swarm_managers'][0]].swarm_worker_join_token }}
+    remote_addrs:
+      - "{{ hostvars[groups['swarm_managers'][0]].private_ip }}:2377"
+  no_log: true
+  when:
+    - swarm_worker_state.LocalNodeState == 'inactive'
+    - >-
+      not (hostvars[groups['swarm_managers'][0]].
+           swarm_creation_deferred_in_check_mode | default(false) | bool)
+
+- name: Explain deferred worker join in new-cluster check mode
+  ansible.builtin.debug:
+    msg: Worker join is deferred because manager initialization is only predicted.
+  when:
+    - swarm_worker_state.LocalNodeState == 'inactive'
+    - >-
+      hostvars[groups['swarm_managers'][0]].
+      swarm_creation_deferred_in_check_mode | default(false) | bool
+
+- name: Read the effective worker advertise address
+  ansible.builtin.command:
+    argv:
+      - docker
+      - info
+      - --format
+      - "{{ '{{.Swarm.NodeAddr}}' }}"
+  register: swarm_worker_node_addr
+  changed_when: false
+  when: >-
+    not (hostvars[groups['swarm_managers'][0]].
+         swarm_creation_deferred_in_check_mode | default(false) | bool)
+
+- name: Assert the worker private advertise address
+  ansible.builtin.assert:
+    that:
+      - swarm_worker_node_addr.stdout == private_ip
+    fail_msg: >-
+      The worker is active with an unexpected advertise address. It will not
+      be modified automatically.
+  when: >-
+    not (hostvars[groups['swarm_managers'][0]].
+         swarm_creation_deferred_in_check_mode | default(false) | bool)

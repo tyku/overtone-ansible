@@ -1,0 +1,72 @@
+---
+- name: Check whether deploy identity already exists
+  ansible.builtin.command: "getent passwd {{ deploy_account.name }}"
+  register: deploy_account_existing
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Create the deploy identity
+  ansible.builtin.user:
+    name: "{{ deploy_account.name }}"
+    shell: >-
+      {{ '/usr/sbin/nologin'
+         if inventory_hostname in groups['bastion_hosts'] else '/bin/bash' }}
+    create_home: true
+    password_lock: true
+    system: "{{ inventory_hostname in groups['bastion_hosts'] }}"
+    state: present
+
+- name: Grant root-equivalent Docker access on the target manager
+  ansible.builtin.user:
+    name: "{{ deploy_account.name }}"
+    groups:
+      - docker
+    append: true
+  when: inventory_hostname in groups['swarm_managers']
+
+- name: Ensure the deploy identity has no sudo policy
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ deploy_account.name }}"
+    state: absent
+
+- name: Start deploy authorized-key restrictions
+  ansible.builtin.set_fact:
+    deploy_authorized_key_options: restrict
+
+- name: Allow bastion transit only to the target manager SSH port
+  ansible.builtin.set_fact:
+    deploy_authorized_key_options: >-
+      {{ deploy_authorized_key_options }},port-forwarding,
+      permitopen="{{ hostvars[deploy_account.target_host].private_ip }}:22"
+  when: inventory_hostname in groups['bastion_hosts']
+
+- name: Install the hop-specific deploy public keys
+  ansible.posix.authorized_key:
+    user: "{{ deploy_account.name }}"
+    key: "{{ deploy_account.public_keys | join('\n') }}"
+    key_options: "{{ deploy_authorized_key_options }}"
+    state: present
+    exclusive: true
+    manage_dir: true
+  when: not ansible_check_mode or deploy_account_existing.rc == 0
+
+- name: Create the manager deployment directory
+  ansible.builtin.file:
+    path: "{{ deploy_root }}"
+    state: directory
+    owner: "{{ deploy_account.name }}"
+    group: "{{ deploy_account.name }}"
+    mode: "0750"
+  when:
+    - inventory_hostname in groups['swarm_managers']
+    - not ansible_check_mode or deploy_account_existing.rc == 0
+
+- name: Explain new-account check-mode limitations
+  ansible.builtin.debug:
+    msg: >-
+      authorized_keys and directory ownership are applied during the real run,
+      after this new Unix identity exists.
+  when:
+    - ansible_check_mode
+    - deploy_account_existing.rc != 0

@@ -1,3 +1,9 @@
 ---
 ssh_policy_profile: locked
 ssh_policy_dropin_path: /etc/ssh/sshd_config.d/00-overtone-internal.conf
+
+# Enable only after the Swarm gateway is deployed on both workers.
+haproxy_require_healthy_backends: false
+haproxy_backend_hosts: "{{ groups['swarm_workers'] }}"
+haproxy_backend_http_port: 80
+haproxy_backend_https_port: 443

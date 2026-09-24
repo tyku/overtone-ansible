@@ -1,0 +1,40 @@
+---
+name: ansible-ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install validation dependencies
+        run: pip install -r requirements-ci.txt
+
+      - name: Install pinned Ansible collections
+        run: ansible-galaxy collection install -r requirements.yml -p .collections
+
+      - name: Reject common committed secret formats
+        run: ./scripts/check-secrets.sh
+
+      - name: Validate YAML
+        run: yamllint .
+
+      - name: Validate Ansible structure and example inventories
+        run: ./scripts/validate-local.sh
+
+      - name: Run Ansible lint
+        run: ansible-lint

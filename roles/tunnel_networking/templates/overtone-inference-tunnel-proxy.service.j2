@@ -1,0 +1,20 @@
+[Unit]
+Description=Expose the existing Overtone inference SSH tunnel on a private address
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nobody
+Group=nogroup
+ExecStart=/usr/bin/socat TCP4-LISTEN:{{ inference_tunnel_endpoint_port }},bind={{ inference_tunnel_endpoint_address }},reuseaddr,fork TCP4:{{ inference_tunnel_ssh_listener_address }}:{{ inference_tunnel_ssh_listener_port }}
+Restart=always
+RestartSec=2s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

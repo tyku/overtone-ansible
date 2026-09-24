@@ -1,0 +1,25 @@
+---
+extends: default
+
+ignore: |
+  .collections/
+  inventories/production/hosts.yml
+
+rules:
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: false
+  braces:
+    max-spaces-inside: 1
+  document-start: enable
+  line-length:
+    max: 140
+    level: warning
+  truthy:
+    allowed-values:
+      - "true"
+      - "false"
+    check-keys: false
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
