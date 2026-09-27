@@ -16,7 +16,7 @@ Git push
 -> Docker Hub login with pull-only production token
 -> /opt/overtone-infra/scripts/deploy.sh
 -> docker stack deploy --with-registry-auth
--> smoke test
+-> wait for exact Swarm replica counts
 -> component rollback when required
 ```
 

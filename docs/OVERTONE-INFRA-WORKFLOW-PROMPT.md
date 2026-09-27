@@ -12,7 +12,7 @@ bastion. Работай только в этом репозитории; overton
 Сначала изучи текущие .github/workflows/release.yml,
 .github/workflows/rollback.yml, scripts/deploy.sh, README и
 docs/CLOUD-RELEASE.md. Сохрани существующую схему build/push, immutable
-tags/digests, smoke checks, component rollback и
+tags/digests, component rollback и
 docker stack deploy --with-registry-auth. Не создавай вторую реализацию deploy.
 
 Обнови release и rollback так, чтобы rsync/ssh шли через bastion к приватному

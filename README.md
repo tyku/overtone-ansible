@@ -6,7 +6,9 @@ Ansible-описание пяти существующих VPS:
 - `haproxy` — отдельный TCP-балансировщик 80/443;
 - `manager-1`, `worker-1`, `worker-2` — Docker Swarm.
 
-Приложение, PostgreSQL, S3, TLS и Docker Stack здесь не настраиваются.
+Приложение, PostgreSQL, S3 и Docker Stack здесь не настраиваются. Отдельные
+TLS-playbook’и выпускают сертификат локально через ручной DNS-01 и копируют
+его на manager; Docker Secrets создаёт `overtone-infra` при деплое.
 
 Текущие firewall и SSH-настройки сначала были выполнены вручную. Playbook’и
 `20-firewall.yml` и `30-ssh-policy.yml` воспроизводят это состояние на случай
@@ -39,6 +41,8 @@ Ansible-описание пяти существующих VPS:
 | `70-team-access.yml` | Управляет полноправными администраторами: ключи, sudo и AllowUsers. |
 | `71-tunnel-accounts.yml` | Создаёт ограниченную tunnel identity на bastion и выбранных workers. |
 | `72-postgresql-tunnel-access.yml` | Создаёт отдельную identity на bastion для локального SSH-туннеля к приватному PostgreSQL:5432. |
+| `75-issue-tls.yml` | Локально запрашивает сертификат для `priemo.tech` и `admin.priemo.tech`, ожидая ручные DNS TXT. |
+| `76-stage-tls.yml` | По запуску оператора копирует проверенную пару сертификат/ключ на manager. |
 | `80-deploy-host.yml` | Создаёт CI deploy identity: transit через bastion и Docker-доступ на manager. |
 | `90-audit.yml` | Read-only аудит эффективных SSH/UFW-настроек. |
 | `91-infrastructure-readiness.yml` | Read-only проверки Swarm, HAProxy и опциональных внешних endpoint’ов. |
@@ -49,6 +53,7 @@ Ansible-описание пяти существующих VPS:
 - [production operations](docs/OPERATIONS.md);
 - [container-to-inference tunnel networking](docs/TUNNEL-NETWORKING.md);
 - [CI/CD boundary and secrets](docs/CI-CD.md).
+- [manual DNS-01 TLS certificate](docs/TLS-CERTIFICATE.md).
 
 ## Управление дополнительным доступом
 
@@ -165,6 +170,7 @@ PostgreSQL TLS настраивается отдельно в клиенте Б�
 - разрешён только `local` forwarding;
 - `PermitOpen` содержит приватные IP четырёх внутренних VPS на TCP 22;
 - при наличии `postgresql_access_users` в `PermitOpen` добавляется точный приватный IP БД на TCP 5432;
+- для админки добавляются приватные IP обоих workers на TCP 8443 и manager на TCP 3001 для Kuma;
 - приватных пользовательских ключей на bastion нет.
 
 ### HAProxy и manager
@@ -179,6 +185,7 @@ PostgreSQL TLS настраивается отдельно в клиенте Б�
 
 - SSH только с приватного IP bastion;
 - TCP 80/443 только с приватного IP HAProxy;
+- TCP 8443 только с приватного IP bastion (в дополнение к provider firewall);
 - root/password/agent/X11/tunnel forwarding запрещены;
 - разрешён только `remote` forwarding (`ssh -R`);
 - `GatewayPorts no`;
@@ -195,7 +202,11 @@ PostgreSQL TLS настраивается отдельно в клиенте Б�
 
 UFW не является единственной защитой опубликованных Docker-портов: Docker может
 обходить обычные UFW chains. Внешний firewall/security groups провайдера остаётся
-обязательным и этим проектом не управляется.
+обязательным и этим проектом не управляется. До публикации admin-порта на workers
+запретите публичный TCP 8443 на обоих workers и TCP 3001 на manager; разрешите
+их только с приватного IP bastion. На manager UFW допускает этот IP к Kuma 3001.
+Схема SSH-туннеля и локального `hosts` описана в
+`../overtone-infra/docs/ADMIN-ACCESS.md`.
 
 ## Что ещё нужно заполнить
 

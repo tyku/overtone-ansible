@@ -4,5 +4,6 @@ inventories/production/hosts.yml
 inventories/production/vault.yml
 *.retry
 .vault-password*
+.local/
 .DS_Store
 .idea/

@@ -87,42 +87,29 @@
       comment: HTTPS from HAProxy
   when: inventory_hostname in groups['swarm_workers']
 
-- name: Allow explicit administrative private networks to worker web ports
+- name: Allow bastion to reach the private admin gateway
   community.general.ufw:
     rule: allow
     direction: in
     interface: "{{ firewall_private_interface }}"
-    from_ip: "{{ item.0 }}"
+    from_ip: "{{ hostvars['bastion'].private_ip }}"
     to_ip: "{{ private_ip }}"
-    to_port: "{{ item.1 }}"
+    to_port: "{{ admin_gateway_port | string }}"
     proto: tcp
-    comment: Administrative access to worker gateway
-  loop: "{{ administrative_private_cidrs | product(['80', '443']) | list }}"
+    comment: Admin HTTPS from bastion
   when: inventory_hostname in groups['swarm_workers']
 
-- name: Require an administrative source before exposing Kuma
-  ansible.builtin.assert:
-    that:
-      - administrative_private_cidrs | length > 0
-    fail_msg: Configure an explicit private/VPN CIDR before enabling Kuma access.
-  when:
-    - inventory_hostname in groups['swarm_managers']
-    - kuma_firewall_enabled | bool
-
-- name: Allow Kuma only from explicit administrative private networks
+- name: Allow bastion to reach Uptime Kuma
   community.general.ufw:
     rule: allow
     direction: in
     interface: "{{ firewall_private_interface }}"
-    from_ip: "{{ item }}"
+    from_ip: "{{ hostvars['bastion'].private_ip }}"
     to_ip: "{{ private_ip }}"
     to_port: "{{ kuma_port | string }}"
     proto: tcp
-    comment: Private administrative access to Uptime Kuma
-  loop: "{{ administrative_private_cidrs }}"
-  when:
-    - inventory_hostname in groups['swarm_managers']
-    - kuma_firewall_enabled | bool
+    comment: Uptime Kuma from bastion
+  when: inventory_hostname in groups['swarm_managers']
 
 - name: Allow workers to reach the Swarm manager control plane
   community.general.ufw:

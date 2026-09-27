@@ -1,0 +1,126 @@
+---
+# Run on the Mac only. The operator creates DNS TXT records by hand.
+- name: Issue the Overtone gateway certificate with manual DNS-01
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+
+  vars:
+    tls_local_dir: "{{ playbook_dir }}/../.local/priemo-tls"
+    tls_acme_directory: https://acme-v02.api.letsencrypt.org/directory
+
+  tasks:
+    - name: Require explicit ACME and terms confirmation
+      ansible.builtin.assert:
+        that:
+          - tls_issue_confirmed | default(false) | bool
+          - tls_acme_terms_agreed | default(false) | bool
+          - tls_contact_email is defined
+          - tls_contact_email is match('^[^@ ]+@[^@ ]+\\.[^@ ]+$')
+        fail_msg: >-
+          Review the Let's Encrypt terms, then provide tls_contact_email,
+          tls_acme_terms_agreed=true and tls_issue_confirmed=true.
+
+    - name: Create a private local certificate directory
+      ansible.builtin.file:
+        path: "{{ tls_local_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Create the local ACME account key
+      community.crypto.openssl_privatekey:
+        path: "{{ tls_local_dir }}/account.key"
+        type: ECC
+        curve: secp256r1
+        mode: "0600"
+      no_log: true
+
+    - name: Create the local certificate private key
+      community.crypto.openssl_privatekey:
+        path: "{{ tls_local_dir }}/privkey.pem"
+        type: ECC
+        curve: secp256r1
+        mode: "0600"
+      no_log: true
+
+    - name: Create the two-name certificate request
+      community.crypto.openssl_csr:
+        path: "{{ tls_local_dir }}/request.csr"
+        privatekey_path: "{{ tls_local_dir }}/privkey.pem"
+        common_name: priemo.tech
+        subject_alt_name:
+          - DNS:priemo.tech
+          - DNS:admin.priemo.tech
+        mode: "0600"
+
+    - name: Request the DNS-01 challenges
+      community.crypto.acme_certificate:
+        account_key_src: "{{ tls_local_dir }}/account.key"
+        account_email: "{{ tls_contact_email }}"
+        terms_agreed: true
+        modify_account: true
+        csr: "{{ tls_local_dir }}/request.csr"
+        fullchain_dest: "{{ tls_local_dir }}/fullchain.pem"
+        challenge: dns-01
+        acme_directory: "{{ tls_acme_directory }}"
+        remaining_days: 30
+      register: tls_acme_challenge
+
+    - name: Show the exact TXT records to create at the DNS provider
+      ansible.builtin.debug:
+        msg:
+          name: "{{ item.key }}"
+          type: TXT
+          values: "{{ item.value }}"
+      loop: "{{ tls_acme_challenge.challenge_data_dns | default({}) | dict2items }}"
+      when: tls_acme_challenge is changed
+
+    - name: Wait for the operator to create TXT records and check propagation
+      ansible.builtin.pause:
+        prompt: >-
+          Add every TXT value above at your DNS provider. Check the public
+          answers for _acme-challenge.priemo.tech and
+          _acme-challenge.admin.priemo.tech, then press Enter.
+      when:
+        - tls_acme_challenge is changed
+        - tls_acme_challenge.challenge_data_dns | default({}) | length > 0
+
+    - name: Complete DNS-01 validation and download the full chain
+      community.crypto.acme_certificate:
+        account_key_src: "{{ tls_local_dir }}/account.key"
+        account_email: "{{ tls_contact_email }}"
+        terms_agreed: true
+        modify_account: true
+        csr: "{{ tls_local_dir }}/request.csr"
+        fullchain_dest: "{{ tls_local_dir }}/fullchain.pem"
+        challenge: dns-01
+        acme_directory: "{{ tls_acme_directory }}"
+        remaining_days: 30
+        data: "{{ tls_acme_challenge }}"
+      when: tls_acme_challenge is changed
+
+    - name: Inspect the issued certificate
+      community.crypto.x509_certificate_info:
+        path: "{{ tls_local_dir }}/fullchain.pem"
+      register: tls_issued_info
+
+    - name: Inspect the local certificate private key
+      community.crypto.openssl_privatekey_info:
+        path: "{{ tls_local_dir }}/privkey.pem"
+      register: tls_private_key_info
+      no_log: true
+
+    - name: Verify both names and the matching private key
+      ansible.builtin.assert:
+        that:
+          - "'DNS:priemo.tech' in tls_issued_info.subject_alt_name"
+          - "'DNS:admin.priemo.tech' in tls_issued_info.subject_alt_name"
+          - tls_issued_info.public_key_fingerprints.sha256 == tls_private_key_info.public_key_fingerprints.sha256
+
+    - name: Show the local certificate location and expiry
+      ansible.builtin.debug:
+        msg: >-
+          Full chain and private key are in {{ tls_local_dir }}.
+          Certificate expires {{ tls_issued_info.not_after }}.
+          Run playbooks/76-stage-tls.yml yourself after reviewing it.

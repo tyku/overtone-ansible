@@ -23,10 +23,9 @@ private_interface: eth1
 unattended_upgrades_enabled: true
 unattended_upgrades_automatic_reboot: false
 
-# Optional additive access. Keep empty until the actual private/VPN CIDRs are known.
-administrative_private_cidrs: []
-kuma_firewall_enabled: false
+# Bastion-only application administration.
 kuma_port: 3001
+admin_gateway_port: 8443
 
 # Optional external-service connectivity checks in 91-infrastructure-readiness.yml.
 postgresql_probe_enabled: false

@@ -1,0 +1,105 @@
+---
+# The operator runs this playbook; the assistant never connects to the manager.
+- name: Stage the issued gateway TLS files on the Swarm manager
+  hosts: swarm_managers
+  become: true
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+
+  vars:
+    tls_local_dir: "{{ playbook_dir }}/../.local/priemo-tls"
+    tls_remote_dir: /etc/overtone/tls
+    tls_deploy_user: overtone_deploy
+
+  pre_tasks:
+    - name: Require explicit staging confirmation
+      ansible.builtin.assert:
+        that:
+          - tls_stage_confirmed | default(false) | bool
+        fail_msg: >-
+          Review the certificate, keep a manager SSH session open, then pass
+          -e tls_stage_confirmed=true to stage the TLS files.
+
+    - name: Inspect the local full chain
+      community.crypto.x509_certificate_info:
+        path: "{{ tls_local_dir }}/fullchain.pem"
+      delegate_to: localhost
+      become: false
+      register: tls_local_certificate
+
+    - name: Inspect the local private key
+      community.crypto.openssl_privatekey_info:
+        path: "{{ tls_local_dir }}/privkey.pem"
+      delegate_to: localhost
+      become: false
+      register: tls_local_key
+      no_log: true
+
+    - name: Require both names and a matching key before upload
+      ansible.builtin.assert:
+        that:
+          - "'DNS:priemo.tech' in tls_local_certificate.subject_alt_name"
+          - "'DNS:admin.priemo.tech' in tls_local_certificate.subject_alt_name"
+          - tls_local_certificate.public_key_fingerprints.sha256 == tls_local_key.public_key_fingerprints.sha256
+
+    - name: Require the existing deployment account
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ tls_deploy_user }}"
+
+  tasks:
+    - name: Explain check-mode behavior
+      ansible.builtin.debug:
+        msg: >-
+          Local certificate and manager deployment account were checked.
+          File staging is skipped in check mode because the destination
+          directory may not exist yet.
+      when: ansible_check_mode
+
+    - name: Create the certificate parent directory
+      ansible.builtin.file:
+        path: /etc/overtone
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: not ansible_check_mode
+
+    - name: Create the private certificate directory
+      ansible.builtin.file:
+        path: "{{ tls_remote_dir }}"
+        state: directory
+        owner: "{{ tls_deploy_user }}"
+        group: "{{ tls_deploy_user }}"
+        mode: "0700"
+      when: not ansible_check_mode
+
+    - name: Stage the certificate full chain
+      ansible.builtin.copy:
+        src: "{{ tls_local_dir }}/fullchain.pem"
+        dest: "{{ tls_remote_dir }}/fullchain.pem"
+        owner: "{{ tls_deploy_user }}"
+        group: "{{ tls_deploy_user }}"
+        mode: "0600"
+      when: not ansible_check_mode
+
+    - name: Stage the certificate private key
+      ansible.builtin.copy:
+        src: "{{ tls_local_dir }}/privkey.pem"
+        dest: "{{ tls_remote_dir }}/privkey.pem"
+        owner: "{{ tls_deploy_user }}"
+        group: "{{ tls_deploy_user }}"
+        mode: "0600"
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Explain the remaining operator-controlled Swarm rotation
+      ansible.builtin.debug:
+        msg: >-
+          TLS files are staged outside /opt/overtone-infra. Set
+          TLS_CERT_FILE={{ tls_remote_dir }}/fullchain.pem and
+          TLS_KEY_FILE={{ tls_remote_dir }}/privkey.pem in the manager .env.
+          If the current Docker Secrets already exist, choose unused versioned
+          TLS_CERT_SECRET and TLS_KEY_SECRET names before running deploy.
+      when: not ansible_check_mode

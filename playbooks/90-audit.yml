@@ -76,6 +76,21 @@
         - ssh_policy_profile == 'bastion'
         - (item.state | default('present')) == 'present'
 
+    - name: Verify admin gateway PermitOpen destinations
+      ansible.builtin.assert:
+        that:
+          - "(hostvars[item].private_ip ~ ':' ~ (admin_gateway_port | string)) in access_audit_sshd.stdout"
+        fail_msg: "Bastion PermitOpen is missing {{ item }}:{{ admin_gateway_port }}."
+      loop: "{{ groups['swarm_workers'] }}"
+      when: ssh_policy_profile == 'bastion'
+
+    - name: Verify Kuma PermitOpen destination
+      ansible.builtin.assert:
+        that:
+          - "(hostvars[groups['swarm_managers'][0]].private_ip ~ ':' ~ (kuma_port | string)) in access_audit_sshd.stdout"
+        fail_msg: Bastion PermitOpen is missing the manager Kuma endpoint.
+      when: ssh_policy_profile == 'bastion'
+
     - name: Verify locked forwarding policy
       ansible.builtin.assert:
         that:
