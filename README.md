@@ -31,7 +31,7 @@ TLS-playbook’и выпускают сертификат локально че�
 | --- | --- |
 | `00-bootstrap.yml` | Создаёт `overtone_*`, устанавливает публичный ключ и passwordless sudo. Не меняет SSH/firewall. |
 | `10-system-baseline.yml` | Hostname, базовые пакеты, time sync и unattended security updates без automatic reboot. |
-| `20-firewall.yml` | Воспроизводит role-specific UFW policy. Требует явного подтверждения. |
+| `20-firewall.yml` | Воспроизводит role-specific UFW policy и ставит pre-DNAT защиту опубликованных приватных портов Swarm. Требует явного подтверждения. |
 | `30-ssh-policy.yml` | Воспроизводит три SSH-профиля с проверкой и rollback. Требует явного подтверждения. |
 | `40-docker.yml` | Устанавливает зафиксированную версию Docker на Swarm-узлы. |
 | `45-docker-readiness.yml` | Проверяет Docker version, systemd, отсутствие public API и доступ к Docker Hub. |
@@ -185,7 +185,7 @@ PostgreSQL TLS настраивается отдельно в клиенте Б�
 
 - SSH только с приватного IP bastion;
 - TCP 80/443 только с приватного IP HAProxy;
-- TCP 8443 только с приватного IP bastion (в дополнение к provider firewall);
+- TCP 8443 только с приватного IP bastion; публичный вход отсекает pre-DNAT host guard;
 - root/password/agent/X11/tunnel forwarding запрещены;
 - разрешён только `remote` forwarding (`ssh -R`);
 - `GatewayPorts no`;
@@ -201,10 +201,17 @@ PostgreSQL TLS настраивается отдельно в клиенте Б�
 - TCP 2377 только на manager со стороны workers.
 
 UFW не является единственной защитой опубликованных Docker-портов: Docker может
-обходить обычные UFW chains. Внешний firewall/security groups провайдера остаётся
-обязательным и этим проектом не управляется. До публикации admin-порта на workers
-запретите публичный TCP 8443 на обоих workers и TCP 3001 на manager; разрешите
-их только с приватного IP bastion. На manager UFW допускает этот IP к Kuma 3001.
+обходить обычные UFW chains. `20-firewall.yml` устанавливает systemd-managed
+guard до запуска Docker: raw/PREROUTING пропускает TCP 8443 каждого worker и
+TCP 3001 manager на приватном IP хоста только от приватного IPv4 bastion на
+приватном интерфейсе; остальной вход на приватный IP и весь вход с публичного
+интерфейса к этим портам отбрасывается до Docker DNAT. IPv6 на публичном и
+приватном интерфейсах тоже блокируется. Overlay service destinations не
+затрагиваются. Guard не удаляет правила при остановке сервиса и проверяет их наличие
+после запуска. UFW отдельно разрешает эти порты с приватного IP bastion.
+Примените playbook до первого деплоя и
+после деплоя проверьте публичные порты с внешней сети: без этой проверки
+изоляция не считается подтверждённой. На manager UFW допускает bastion к Kuma 3001.
 Схема SSH-туннеля и локального `hosts` описана в
 `../overtone-infra/docs/ADMIN-ACCESS.md`.
 

@@ -1,0 +1,22 @@
+[Unit]
+Description=Allow Overtone private Docker port {{ firewall_docker_guard_port }} only from bastion
+Requires=ufw.service
+After=ufw.service
+Before=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# raw/PREROUTING runs before Docker's destination NAT. Match the host's
+# public interface or private address, never overlay service destinations.
+# Insert drops first, then the private bastion exception above them.
+# Do not remove these rules on stop: a stopped unit must fail closed.
+ExecStart=/usr/sbin/iptables -w -t raw -I PREROUTING 1 -i {{ firewall_public_interface }} -p tcp --dport {{ firewall_docker_guard_port }} -j DROP
+ExecStart=/usr/sbin/iptables -w -t raw -I PREROUTING 1 -d {{ private_ip }} -p tcp --dport {{ firewall_docker_guard_port }} -j DROP
+ExecStart=/usr/sbin/iptables -w -t raw -I PREROUTING 1 -i {{ firewall_private_interface }} -s {{ hostvars['bastion'].private_ip }} -d {{ private_ip }} -p tcp --dport {{ firewall_docker_guard_port }} -j ACCEPT
+ExecStart=/usr/sbin/ip6tables -w -t raw -I PREROUTING 1 -i {{ firewall_public_interface }} -p tcp --dport {{ firewall_docker_guard_port }} -j DROP
+ExecStart=/usr/sbin/ip6tables -w -t raw -I PREROUTING 1 -i {{ firewall_private_interface }} -p tcp --dport {{ firewall_docker_guard_port }} -j DROP
+
+[Install]
+RequiredBy=docker.service
+WantedBy=multi-user.target

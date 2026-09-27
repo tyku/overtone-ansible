@@ -26,6 +26,8 @@
         path: "{{ tls_local_dir }}/fullchain.pem"
       delegate_to: localhost
       become: false
+      vars:
+        ansible_become: false
       register: tls_local_certificate
 
     - name: Inspect the local private key
@@ -33,6 +35,8 @@
         path: "{{ tls_local_dir }}/privkey.pem"
       delegate_to: localhost
       become: false
+      vars:
+        ansible_become: false
       register: tls_local_key
       no_log: true
 

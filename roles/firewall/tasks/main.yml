@@ -153,3 +153,133 @@
   community.general.ufw:
     state: enabled
   when: firewall_enable | bool
+
+- name: Validate the public Docker port guard on Swarm nodes
+  ansible.builtin.assert:
+    that:
+      - firewall_enable | bool
+      - firewall_public_interface is match('^[A-Za-z0-9_.:-]+$')
+      - firewall_public_interface in ansible_facts['interfaces'] | default([])
+      - firewall_private_interface is match('^[A-Za-z0-9_.:-]+$')
+      - firewall_private_interface in ansible_facts['interfaces'] | default([])
+      - firewall_docker_guard_port | int > 0
+      - firewall_docker_guard_port | int <= 65535
+    fail_msg: >-
+      The Docker public port guard requires active UFW, a real public
+      interface and a valid private service port.
+  when: inventory_hostname in groups['swarm']
+
+- name: Install the pre-DNAT public Docker port guard
+  ansible.builtin.template:
+    src: overtone-private-port-guard.service.j2
+    dest: /etc/systemd/system/overtone-private-port-guard.service
+    owner: root
+    group: root
+    mode: '0644'
+  register: firewall_docker_guard_unit
+  when: inventory_hostname in groups['swarm']
+
+- name: Enable and start the public Docker port guard
+  ansible.builtin.systemd_service:
+    name: overtone-private-port-guard.service
+    daemon_reload: true
+    enabled: true
+    state: "{{ 'restarted' if firewall_docker_guard_unit.changed else 'started' }}"
+  when:
+    - inventory_hostname in groups['swarm']
+    - not ansible_check_mode
+
+- name: Verify that only the private bastion is excepted before NAT
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/iptables
+      - -w
+      - -t
+      - raw
+      - -C
+      - PREROUTING
+      - -i
+      - "{{ firewall_private_interface }}"
+      - -s
+      - "{{ hostvars['bastion'].private_ip }}"
+      - -d
+      - "{{ private_ip }}"
+      - -p
+      - tcp
+      - --dport
+      - "{{ firewall_docker_guard_port | string }}"
+      - -j
+      - ACCEPT
+  changed_when: false
+  when:
+    - inventory_hostname in groups['swarm']
+    - not ansible_check_mode
+
+- name: Verify the public IPv4 Docker port drop before NAT
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/iptables
+      - -w
+      - -t
+      - raw
+      - -C
+      - PREROUTING
+      - -i
+      - "{{ firewall_public_interface }}"
+      - -p
+      - tcp
+      - --dport
+      - "{{ firewall_docker_guard_port | string }}"
+      - -j
+      - DROP
+  changed_when: false
+  when:
+    - inventory_hostname in groups['swarm']
+    - not ansible_check_mode
+
+- name: Verify the private host IPv4 Docker port drop before NAT
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/iptables
+      - -w
+      - -t
+      - raw
+      - -C
+      - PREROUTING
+      - -d
+      - "{{ private_ip }}"
+      - -p
+      - tcp
+      - --dport
+      - "{{ firewall_docker_guard_port | string }}"
+      - -j
+      - DROP
+  changed_when: false
+  when:
+    - inventory_hostname in groups['swarm']
+    - not ansible_check_mode
+
+- name: Verify public and private IPv6 Docker port drops before NAT
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/ip6tables
+      - -w
+      - -t
+      - raw
+      - -C
+      - PREROUTING
+      - -i
+      - "{{ item }}"
+      - -p
+      - tcp
+      - --dport
+      - "{{ firewall_docker_guard_port | string }}"
+      - -j
+      - DROP
+  loop:
+    - "{{ firewall_public_interface }}"
+    - "{{ firewall_private_interface }}"
+  changed_when: false
+  when:
+    - inventory_hostname in groups['swarm']
+    - not ansible_check_mode

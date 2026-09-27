@@ -5,6 +5,11 @@ firewall_default_incoming: deny
 firewall_default_outgoing: allow
 firewall_enable: true
 
+# A host-mode Swarm publication can bypass UFW's INPUT policy. Restrict these
+# host-addressed private service ports before Docker's destination NAT.
+firewall_docker_guard_port: >-
+  {{ admin_gateway_port if inventory_hostname in groups['swarm_workers'] else kuma_port }}
+
 firewall_swarm_common_rules:
   - protocol: tcp
     port: "7946"
