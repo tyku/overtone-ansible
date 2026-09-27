@@ -78,6 +78,12 @@
   tags:
     - docker_install
 
+- name: Record whether Docker CE is already installed
+  ansible.builtin.package_facts:
+    manager: auto
+  tags:
+    - docker_install
+
 - name: Install the pinned Docker Engine and Python SDK
   ansible.builtin.apt:
     name:
@@ -101,6 +107,7 @@
   loop:
     - docker-ce
     - docker-ce-cli
+  when: not ansible_check_mode or 'docker-ce' in ansible_facts.packages
   tags:
     - docker_install
 
@@ -109,6 +116,7 @@
     name: docker.service
     enabled: true
     state: started
+  when: not ansible_check_mode or 'docker-ce' in ansible_facts.packages
   tags:
     - docker_install
 
@@ -119,10 +127,24 @@
       - docker
     append: true
   loop: "{{ docker_users }}"
+  when: not ansible_check_mode or 'docker-ce' in ansible_facts.packages
+  tags:
+    - docker_install
+
+- name: Explain deferred tasks on a new host in check mode
+  ansible.builtin.debug:
+    msg: >-
+      Docker package installation is predicted above. Package holds, service
+      startup and docker-group membership need a real install before they can
+      be checked; they will run during the real playbook execution.
+  when:
+    - ansible_check_mode
+    - "'docker-ce' not in ansible_facts.packages"
   tags:
     - docker_install
 
 - name: Reset SSH so new group membership is visible
   ansible.builtin.meta: reset_connection
+  when: not ansible_check_mode or 'docker-ce' in ansible_facts.packages
   tags:
     - docker_install

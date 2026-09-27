@@ -37,8 +37,7 @@
 - name: Allow bastion transit only to the target manager SSH port
   ansible.builtin.set_fact:
     deploy_authorized_key_options: >-
-      {{ deploy_authorized_key_options }},port-forwarding,
-      permitopen="{{ hostvars[deploy_account.target_host].private_ip }}:22"
+      {{ deploy_authorized_key_options }},port-forwarding,permitopen="{{ hostvars[deploy_account.target_host].private_ip }}:22"
   when: inventory_hostname in groups['bastion_hosts']
 
 - name: Install the hop-specific deploy public keys

@@ -1,5 +1,20 @@
 ---
-- name: Inspect every expected Swarm node from the manager
+- name: Wait for all expected Swarm nodes to appear on the manager
+  ansible.builtin.command:
+    argv:
+      - docker
+      - node
+      - ls
+      - --quiet
+  register: swarm_actual_node_ids
+  changed_when: false
+  check_mode: false
+  retries: 10
+  delay: 3
+  until: swarm_actual_node_ids.stdout_lines | length == groups['swarm'] | length
+  when: not (swarm_creation_deferred_in_check_mode | default(false) | bool)
+
+- name: Inspect actual Swarm nodes by Docker ID
   ansible.builtin.command:
     argv:
       - docker
@@ -8,22 +23,45 @@
       - "{{ item }}"
       - --format
       - "{{ '{{json .}}' }}"
-  loop: "{{ groups['swarm'] }}"
-  register: swarm_expected_nodes
+  loop: "{{ swarm_actual_node_ids.stdout_lines | default([]) }}"
+  register: swarm_actual_node_details
   changed_when: false
+  check_mode: false
   when: not (swarm_creation_deferred_in_check_mode | default(false) | bool)
 
-- name: Verify node readiness, availability and private address
+- name: Decode actual Swarm node details
+  ansible.builtin.set_fact:
+    swarm_observed_nodes: >-
+      {{ swarm_actual_node_details.results |
+         map(attribute='stdout') | map('from_json') | list }}
+  when: not (swarm_creation_deferred_in_check_mode | default(false) | bool)
+
+- name: Verify each inventory host by private address and Swarm role
   ansible.builtin.assert:
     that:
-      - (item.stdout | from_json).Status.State == 'ready'
-      - (item.stdout | from_json).Spec.Availability == 'active'
-      - (item.stdout | from_json).Status.Addr == hostvars[item.item].private_ip
+      - swarm_matching_nodes | length == 1
       - >-
-        item.item not in groups['swarm_managers'] or
-        ((item.stdout | from_json).ManagerStatus.Leader | default(false) | bool)
-    fail_msg: "Swarm node {{ item.item }} is not Ready/Active on its expected private address."
-  loop: "{{ swarm_expected_nodes.results }}"
+        swarm_matching_nodes | length == 1 and
+        swarm_matching_nodes[0].Status.State == 'ready'
+      - >-
+        swarm_matching_nodes | length == 1 and
+        swarm_matching_nodes[0].Spec.Availability == 'active'
+      - >-
+        swarm_matching_nodes | length == 1 and
+        swarm_matching_nodes[0].Spec.Role ==
+        ('manager' if item in groups['swarm_managers'] else 'worker')
+      - >-
+        item not in groups['swarm_managers'] or
+        (swarm_matching_nodes | length == 1 and
+         (swarm_matching_nodes[0].ManagerStatus.Leader | default(false) | bool))
+    fail_msg: >-
+      Swarm node for {{ item }} is missing or is not Ready/Active with its
+      expected private address, role and manager leadership.
+  vars:
+    swarm_matching_nodes: >-
+      {{ swarm_observed_nodes |
+         selectattr('Status.Addr', 'equalto', hostvars[item].private_ip) | list }}
+  loop: "{{ groups['swarm'] }}"
   loop_control:
-    label: "{{ item.item }}"
+    label: "{{ item }}"
   when: not (swarm_creation_deferred_in_check_mode | default(false) | bool)

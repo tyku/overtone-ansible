@@ -38,6 +38,7 @@ Ansible-описание пяти существующих VPS:
 | `60-haproxy.yml` | Устанавливает HAProxy и проксирует TCP 80/443 на workers. |
 | `70-team-access.yml` | Управляет полноправными администраторами: ключи, sudo и AllowUsers. |
 | `71-tunnel-accounts.yml` | Создаёт ограниченную tunnel identity на bastion и выбранных workers. |
+| `72-postgresql-tunnel-access.yml` | Создаёт отдельную identity на bastion для локального SSH-туннеля к приватному PostgreSQL:5432. |
 | `80-deploy-host.yml` | Создаёт CI deploy identity: transit через bastion и Docker-доступ на manager. |
 | `90-audit.yml` | Read-only аудит эффективных SSH/UFW-настроек. |
 | `91-infrastructure-readiness.yml` | Read-only проверки Swarm, HAProxy и опциональных внешних endpoint’ов. |
@@ -128,6 +129,32 @@ ssh -i ~/.ssh/overtone-infra/keys/CHANGE_ME_TUNNEL_KEY \
 `inventories/production/hosts.yml` по примеру из `hosts.example.yml`. Подробный
 порядок безопасного применения описан в [production operations](docs/OPERATIONS.md).
 
+`72-postgresql-tunnel-access.yml` создаёт отдельного пользователя только на
+bastion. Его публичный ключ и точный приватный IP базы задаются в
+`postgresql_access_users` игнорируемого `inventories/production/hosts.yml`.
+У пользователя нет shell, пароля и sudo; ключ допускает только локальное
+перенаправление к указанному IP на TCP 5432. Пример вызова после заполнения
+inventory:
+
+```bash
+ansible-playbook -i inventories/production/hosts.yml \
+  playbooks/72-postgresql-tunnel-access.yml \
+  --limit bastion -e access_policy_confirmed=true --check --diff
+```
+
+После просмотра check mode повторите команду без `--check --diff`. С Mac:
+
+```bash
+ssh -T -N -o BatchMode=yes -o IdentitiesOnly=yes \
+  -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes \
+  -i ~/.ssh/overtone-infra/keys/overtone-postgresql-tunnel \
+  -l overtone_pg_tunnel \
+  -L 127.0.0.1:15432:10.16.0.1:5432 overtone-bastion
+```
+
+PostgreSQL TLS настраивается отдельно в клиенте БД: SSH защищает Mac → bastion,
+а TLS с `verify-full` проверяет сертификат самой БД до конечной точки.
+
 ## Зафиксированная модель доступа
 
 ### Bastion
@@ -137,6 +164,7 @@ ssh -i ~/.ssh/overtone-infra/keys/CHANGE_ME_TUNNEL_KEY \
 - agent/X11/tunnel forwarding запрещены;
 - разрешён только `local` forwarding;
 - `PermitOpen` содержит приватные IP четырёх внутренних VPS на TCP 22;
+- при наличии `postgresql_access_users` в `PermitOpen` добавляется точный приватный IP БД на TCP 5432;
 - приватных пользовательских ключей на bastion нет.
 
 ### HAProxy и manager

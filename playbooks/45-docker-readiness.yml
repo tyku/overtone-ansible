@@ -78,7 +78,7 @@
       ansible.builtin.assert:
         that:
           - >-
-            groups['swarm'] |
+            ansible_play_hosts_all |
             map('extract', hostvars, 'docker_engine_server_version') |
             unique | list | length == 1
         fail_msg: Swarm nodes run different Docker Engine versions.

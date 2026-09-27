@@ -8,6 +8,7 @@ all:
     team_access_users: []
     tunnel_access_users: []
     deploy_access_users: []
+    postgresql_access_users: []
 
     # After initializing or verifying the production manager, record its
     # non-secret cluster identity here to prevent accidental foreign adoption.
@@ -24,6 +25,15 @@ all:
     #       - manager-1
     #       - worker-1
     #       - worker-2
+    #     state: present
+
+    # Dedicated Mac-to-PostgreSQL forwarding on bastion. Use the database's
+    # private Beget IP; never put the database password in this inventory.
+    # postgresql_access_users:
+    #   - name: overtone_pg_tunnel
+    #     public_keys:
+    #       - ssh-ed25519 CHANGE_ME_POSTGRESQL_TUNNEL_PUBLIC_KEY mac
+    #     private_host: 10.16.0.1
     #     state: present
 
     # Example GitHub Actions deploy identity. Store only the public key here.

@@ -1,0 +1,38 @@
+---
+- name: Refuse to remove the active Ansible administrator
+  ansible.builtin.assert:
+    that:
+      - item.name != (ansible_user | default(''))
+      - item.name != (overtone_admin_user | default(''))
+    fail_msg: "Refusing to remove the active automation account {{ item.name }}."
+  loop: "{{ postgresql_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: (item.state | default('present')) == 'absent'
+
+- name: Manage present PostgreSQL tunnel identities
+  ansible.builtin.include_tasks: present.yml
+  loop: "{{ postgresql_access_users }}"
+  loop_control:
+    loop_var: postgresql_account
+    label: "{{ postgresql_account.name }}"
+  when: (postgresql_account.state | default('present')) == 'present'
+
+- name: Remove obsolete PostgreSQL tunnel sudo policies
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ item.name }}"
+    state: absent
+  loop: "{{ postgresql_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: (item.state | default('present')) == 'absent'
+
+- name: Remove obsolete PostgreSQL tunnel identities
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    state: absent
+    remove: true
+  loop: "{{ postgresql_access_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: (item.state | default('present')) == 'absent'

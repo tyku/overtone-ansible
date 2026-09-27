@@ -1,0 +1,41 @@
+---
+- name: Check whether PostgreSQL tunnel identity already exists
+  ansible.builtin.command: "getent passwd {{ postgresql_account.name }}"
+  register: postgresql_account_existing
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Create the PostgreSQL tunnel identity
+  ansible.builtin.user:
+    name: "{{ postgresql_account.name }}"
+    shell: /usr/sbin/nologin
+    create_home: true
+    password_lock: true
+    system: true
+    state: present
+
+- name: Ensure the PostgreSQL tunnel identity has no sudo policy
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ postgresql_account.name }}"
+    state: absent
+
+- name: Install the destination-restricted PostgreSQL tunnel key
+  ansible.posix.authorized_key:
+    user: "{{ postgresql_account.name }}"
+    key: "{{ postgresql_account.public_keys | join('\n') }}"
+    key_options: >-
+      restrict,port-forwarding,permitopen="{{ postgresql_account.private_host }}:5432"
+    state: present
+    exclusive: true
+    manage_dir: true
+  when: not ansible_check_mode or postgresql_account_existing.rc == 0
+
+- name: Explain new-account check-mode limitation
+  ansible.builtin.debug:
+    msg: >-
+      The public key cannot be check-mode validated until this Unix account
+      exists; it will be installed during the real run.
+  when:
+    - ansible_check_mode
+    - postgresql_account_existing.rc != 0

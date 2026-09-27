@@ -64,6 +64,18 @@
       loop: "{{ groups['internal'] }}"
       when: ssh_policy_profile == 'bastion'
 
+    - name: Verify PostgreSQL tunnel PermitOpen destinations
+      ansible.builtin.assert:
+        that:
+          - "(item.private_host ~ ':5432') in access_audit_sshd.stdout"
+        fail_msg: "Bastion PermitOpen is missing {{ item.private_host }}:5432."
+      loop: "{{ postgresql_access_users | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when:
+        - ssh_policy_profile == 'bastion'
+        - (item.state | default('present')) == 'present'
+
     - name: Verify locked forwarding policy
       ansible.builtin.assert:
         that:

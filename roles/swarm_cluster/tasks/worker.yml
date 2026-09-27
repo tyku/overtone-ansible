@@ -15,6 +15,7 @@
       - "{{ '{{json .Swarm}}' }}"
   register: swarm_worker_info_raw
   changed_when: false
+  check_mode: false
 
 - name: Decode local worker Swarm state
   ansible.builtin.set_fact:
@@ -42,6 +43,7 @@
   register: swarm_worker_membership
   changed_when: false
   failed_when: false
+  check_mode: false
   when: swarm_worker_state.LocalNodeState == 'active'
 
 - name: Refuse to move a worker from another Swarm
@@ -87,6 +89,7 @@
       - "{{ '{{.Swarm.NodeAddr}}' }}"
   register: swarm_worker_node_addr
   changed_when: false
+  check_mode: false
   when: >-
     not (hostvars[groups['swarm_managers'][0]].
          swarm_creation_deferred_in_check_mode | default(false) | bool)

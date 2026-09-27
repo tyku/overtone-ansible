@@ -10,6 +10,10 @@
       - not haproxy_send_proxy_protocol | bool
     fail_msg: Configure exactly two workers and their private_ip values.
 
+- name: Record whether HAProxy is already installed
+  ansible.builtin.package_facts:
+    manager: auto
+
 - name: Install HAProxy
   ansible.builtin.apt:
     name: haproxy
@@ -27,13 +31,26 @@
     backup: true
     validate: /usr/sbin/haproxy -c -f %s
   notify: Reload HAProxy
+  when: not ansible_check_mode or 'haproxy' in ansible_facts.packages
 
 - name: Enable and start HAProxy
   ansible.builtin.systemd_service:
     name: haproxy.service
     enabled: true
     state: started
+  when: not ansible_check_mode or 'haproxy' in ansible_facts.packages
 
 - name: Verify the installed HAProxy configuration
   ansible.builtin.command: /usr/sbin/haproxy -c -f /etc/haproxy/haproxy.cfg
   changed_when: false
+  check_mode: false
+  when: not ansible_check_mode or 'haproxy' in ansible_facts.packages
+
+- name: Explain deferred HAProxy checks on a new host
+  ansible.builtin.debug:
+    msg: >-
+      Package installation is predicted above. Template validation, service
+      startup and installed-config verification need a real HAProxy install.
+  when:
+    - ansible_check_mode
+    - "'haproxy' not in ansible_facts.packages"

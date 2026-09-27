@@ -1,0 +1,24 @@
+---
+- name: Manage restricted PostgreSQL tunnel access on bastion
+  hosts: bastion_hosts
+  become: true
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+
+  pre_tasks:
+    - name: Require explicit confirmation before changing bastion SSH access
+      ansible.builtin.assert:
+        that:
+          - access_policy_confirmed | default(false) | bool
+        fail_msg: >-
+          This playbook changes bastion users and SSH access. Keep an existing
+          SSH session and provider console open, then rerun with
+          -e access_policy_confirmed=true --limit bastion.
+
+  roles:
+    - role: access_model
+      vars:
+        access_model_required_kind: postgresql
+    - role: ssh_policy
+    - role: postgresql_access

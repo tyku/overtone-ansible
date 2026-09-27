@@ -15,6 +15,7 @@
       - "{{ '{{json .Swarm}}' }}"
   register: swarm_manager_info_raw
   changed_when: false
+  check_mode: false
 
 - name: Decode local manager Swarm state
   ansible.builtin.set_fact:
@@ -63,6 +64,7 @@
       - "{{ '{{.Swarm.Cluster.ID}}' }}"
   register: swarm_manager_id_raw
   changed_when: false
+  check_mode: false
   when: not (swarm_creation_deferred_in_check_mode | default(false) | bool)
 
 - name: Refuse to adopt an unrecorded or different active Swarm
@@ -101,6 +103,7 @@
       - "{{ '{{.Swarm.NodeAddr}}' }}"
   register: swarm_manager_node_addr
   changed_when: false
+  check_mode: false
   when: not (swarm_creation_deferred_in_check_mode | default(false) | bool)
 
 - name: Assert the manager private advertise address
